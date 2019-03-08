@@ -52,11 +52,14 @@ object TemplateBasedSpriteDetector {
     rdd.map({
       case (i: Int, src: String) => {
         val image = Imgcodecs.imread(src)
+        val s = sprites
         // Generate a list of heatmap like images denoting where the corresponding template (sprite) is in the source image.
+        // This block causes serialization to fail
         val tmplLocMat = sprites.map(sprite => {
           var out = new Mat()
           Imgproc.matchTemplate(image, sprite, out, Imgproc.TM_CCOEFF)
           out
+          new Mat()
         })
 
         // For each "heatmap" get the location of the maximum value, which corresponds to the sprite's most probably location
