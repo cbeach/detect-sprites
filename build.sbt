@@ -5,12 +5,12 @@ lazy val root = (project in file(".")).
   settings(
     inThisBuild(List(
       organization := "org.apind",
-      scalaVersion := "2.11.8"
+      scalaVersion := "2.12.8"
     )),
     name := "detect-sprites",
     version := "0.0.1",
 
-    sparkVersion := "2.3.0",
+    sparkVersion := "2.4.0",
     sparkComponents := Seq(),
 
     javacOptions ++= Seq("-source", "1.8", "-target", "1.8"),
@@ -22,12 +22,12 @@ lazy val root = (project in file(".")).
     coverageHighlighting := true,
 
     libraryDependencies ++= Seq(
-      "org.apache.spark" %% "spark-streaming" % "2.3.0" % "provided",
-      "org.apache.spark" %% "spark-sql" % "2.3.0" % "provided",
+      "org.apache.spark" %% "spark-streaming" % "2.4.0" % "provided",
+      "org.apache.spark" %% "spark-sql" % "2.4.0" % "provided",
 
       "org.scalatest" %% "scalatest" % "3.0.1" % "test",
-      "org.scalacheck" %% "scalacheck" % "1.13.4" % "test",
-      "com.holdenkarau" %% "spark-testing-base" % "2.3.0_0.9.0" % "test" 
+      "org.scalacheck" %% "scalacheck" % "1.13.4" % "test"
+      //"com.holdenkarau" %% "spark-testing-base" % "2.4.0_0.9.0" % "test" 
     ),
 
     // uses compile classpath for the run task, including "provided" jar (cf http://stackoverflow.com/a/21803413/3827)
