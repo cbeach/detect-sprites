@@ -1,3 +1,4 @@
+import itertools
 from collections import defaultdict
 import json
 from glob import glob
@@ -18,6 +19,9 @@ from pyspark import SparkContext, SparkConf
 #    cv2.waitKey(1)
 threshold = 0.99
 mask_color = np.array([143, 39, 146])
+
+with open('ten-k-primes.json', 'r') as fp:
+    primes = json.load(fp)
 
 def load_sprites():
     sprite_paths = list(glob('sprites/SuperMarioBros-Nes/*.png'))
@@ -66,8 +70,6 @@ def mask_frame(frame, mask, x, y, w, h):
                 frame[y + i][x + j] = mask_color
     return frame
 
-
-def get_patches(frame):
 
 
 def find_sprite(fsm):
@@ -185,5 +187,109 @@ def main():
             stats, masks, sprites, sprite_paths = zip(*sorted(zip(stats, masks, sprites, sprite_paths), reverse=True, key=lambda x: x[0]))
             stats = list(stats)
 
+
+def get_patches(frame):
+    mask = np.ones(frame.shape[:-1])
+    bg_color = frame[0][0].copy()
+    size = frame.shape[0] * frame.shape[1]
+    counter = 0.0
+    patches = []
+    hat = (216, 40, 0)
+    for i, row in enumerate(mask):
+        for j, pix in enumerate(row):
+            counter += 1
+            if pix == 1:
+                if np.array_equal(bg_color, frame[i][j]) is True:
+                    mask[i][j] = 0
+                    continue
+                patches.append((frame[i][j], iterate_on_patch(frame, mask, i, j)))
+                if (185, 88) in patches[-1][1]:
+                    print(len(patches) - 1, patches[ - 1])
+    return patches
+
+
+def iterate_on_patch(frame, mask, x, y):
+    stack = [(x, y)]
+    mask[x][y] = 0
+    patch = []
+    while len(stack) > 0:
+        cur = stack.pop()
+        patch.append(cur)
+        for i, j in get_neighbors(frame, *cur):
+            if mask[i][j] == 1:
+                stack.append((i, j))
+                mask[i][j] = 0
+    return patch
+
+def get_neighbors(frame, x, y):
+    neighbors = []
+    if x > 0 and y > 0 and np.array_equal(frame[x-1][y-1], frame[x][y]):
+        neighbors.append((x-1, y-1))
+    if y > 0 and np.array_equal(frame[x][y-1], frame[x][y]):
+        neighbors.append((x, y-1))
+    if x < frame.shape[0] - 1 and y > 0 and np.array_equal(frame[x+1][y-1], frame[x][y]):
+        neighbors.append((x+1, y-1))
+
+    if x > 0 and np.array_equal(frame[x-1][y], frame[x][y]):
+        neighbors.append((x-1, y))
+    #if x > 0 and np.array_equal(frame[x][y], frame[x][y]):
+    #    neighbors.append((x, y))
+    if x < frame.shape[0] - 1 and np.array_equal(frame[x+1][y], frame[x][y]):
+        neighbors.append((x+1, y))
+
+    if x > 0 and y < frame.shape[1] - 1 and np.array_equal(frame[x-1][y+1], frame[x][y]):
+        neighbors.append((x-1, y+1))
+    if y < frame.shape[1] - 1 and np.array_equal(frame[x][y+1], frame[x][y]):
+        neighbors.append((x, y+1))
+    if x < frame.shape[0] - 1 and y < frame.shape[1] - 1 and np.array_equal(frame[x+1][y+1], frame[x][y]):
+        neighbors.append((x+1, y+1))
+
+    return neighbors
+
+
+def bounding_box(patch):
+    x = [i[0] for i in patch]
+    y = [i[1] for i in patch]
+    return ((min(x), min(y)), (max(x) + 1, max(y) + 1))
+
+def draw_bounding_box(img, bb):
+    cp = img.copy()
+    cv2.rectangle(cp, (bb[0][1], bb[0][0]), (bb[1][1], bb[1][0]), (0,255,0),1)
+    return cp
+
+def fill_patch(img, patch):
+    cp = img.copy()
+    for x, y in patch[1]:
+        cp[x][y][0] = 0
+        cp[x][y][1] = 255
+        cp[x][y][2] = 0
+    return cp
+
+
 if __name__ == "__main__":
-    main()
+    img = cv2.imread('1008-693.png')
+    #main()
+    patches = get_patches(img)
+    palette = set([tuple(p[0]) for p in patches])
+    print(len(palette), palette)
+    bbs = []
+    bb_sizes = []
+    bb_dims = []
+    for c, p in patches:
+        bb = bounding_box(p)
+        bbs.append(bb)
+        bb_sizes.append((bb[1][0] - bb[0][0]) * (bb[1][1] - bb[0][1]))
+        bb_dims.append(((bb[1][0] - bb[0][0]), (bb[1][1] - bb[0][1])))
+
+
+    minbb = min(bb_sizes)
+    maxbb = max(bb_sizes)
+    print("min", minbb, bb_dims[bb_sizes.index(minbb)], bbs[bb_sizes.index(minbb)])
+    print("max", maxbb, bb_dims[bb_sizes.index(maxbb)], bbs[bb_sizes.index(maxbb)])
+    print(patches[bb_sizes.index(maxbb)][0])
+
+    bb_drawn = draw_bounding_box(img, bbs[bb_sizes.index(maxbb)])
+    pfilled = fill_patch(img, patches[bb_sizes.index(maxbb)])
+    scaled = cv2.resize(pfilled, (pfilled.shape[1]*3, pfilled.shape[0]*3))
+    cv2.imshow('frame', scaled)
+    cv2.waitKey(0)
