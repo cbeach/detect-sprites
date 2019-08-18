@@ -1,0 +1,138 @@
+[
+  {
+    "play": "13227",
+    "frame": "51",
+    "loc": [
+      [
+        107,
+        109
+      ],
+      [
+        123,
+        125
+      ]
+    ],
+    "sprite": "sprites/SuperMarioBros-Nes/33.png"
+  },
+  {
+    "play": "2244",
+    "frame": "958",
+    "loc": [
+      [
+        108,
+        146
+      ],
+      [
+        124,
+        162
+      ]
+    ],
+    "sprite": "sprites/SuperMarioBros-Nes/33.png"
+  },
+  {
+    "play": "2427",
+    "frame": "4356"
+  },
+  {
+    "play": "8577",
+    "frame": "21",
+    "loc": [
+      [
+        97,
+        184
+      ],
+      [
+        113,
+        200
+      ]
+    ],
+    "sprite": "sprites/SuperMarioBros-Nes/7.png"
+  },
+  {
+    "play": "15258",
+    "frame": "95",
+    "loc": [
+      [
+        110,
+        158
+      ],
+      [
+        126,
+        174
+      ]
+    ],
+    "sprite": "sprites/SuperMarioBros-Nes/33.png"
+  },
+  {
+    "play": "16822",
+    "frame": "117",
+    "loc": [
+      [
+        105,
+        169
+      ],
+      [
+        121,
+        185
+      ]
+    ],
+    "sprite": "sprites/SuperMarioBros-Nes/33.png"
+  },
+  {
+    "play": "1217",
+    "frame": "4",
+    "loc": [
+      [
+        43,
+        184
+      ],
+      [
+        59,
+        200
+      ]
+    ],
+    "sprite": "sprites/SuperMarioBros-Nes/6.png"
+  },
+  {
+    "play": "15014",
+    "frame": "1745"
+  },
+  {
+    "play": "7463",
+    "frame": "1987"
+  },
+  {
+    "play": "15311",
+    "frame": "1118"
+  },
+  {
+    "play": "14904",
+    "frame": "265",
+    "loc": [
+      [
+        86,
+        206
+      ],
+      [
+        102,
+        222
+      ]
+    ],
+    "sprite": "sprites/SuperMarioBros-Nes/6.png"
+  },
+  {
+    "play": "9328",
+    "frame": "113",
+    "loc": [
+      [
+        102,
+        170
+      ],
+      [
+        118,
+        186
+      ]
+    ],
+    "sprite": "sprites/SuperMarioBros-Nes/33.png"
+  }
+]

@@ -151,3 +151,4 @@ docs/_build/
 *~
 *.sw[mnop]
 output/
+*.png
