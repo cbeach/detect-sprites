@@ -1,28 +1,65 @@
+import itertools
 import json
+import math
 
 import cv2
 import numpy as np
 
 
+def neighboring_points(self, x, y, arr):
+    max_x, max_y = arr.shape[:2]
+    neighbors = []
+    if x > 0 and y > 0:
+        neighbors.append((x-1, y-1))
+    if y > 0:
+        neighbors.append((x, y-1))
+    if x < max_x - 1 and y > 0:
+        neighbors.append((x+1, y-1))
+
+    if x > 0:
+        neighbors.append((x-1, y))
+    #if x > 0 and np.array_equal(frame[x][y], frame[x][y]):
+    #    neighbors.append((x, y))
+    if x < max_x - 1:
+        neighbors.append((x+1, y))
+
+    if x > 0 and y < max_y - 1:
+        neighbors.append((x-1, y+1))
+    if y < max_y - 1:
+        neighbors.append((x, y+1))
+    if x < max_x - 1 and y < max_y - 1 and np.array_equal(frame[x+1][y+1], frame[x][y]):
+        neighbors.append((x+1, y+1))
+
+    return neighbors
+
+
 class Frame:
     def __init__(self, frame):
         self.raw_frame = frame
-        self.patches = self.get_patch_list(self.raw_frame)
+        self.patches = self.patch_list(self.raw_frame)
         self.palette = set([i.color for i in self.patches])
 
-    def get_patch_list(self, frame):
+    def patch_list(self, frame):
         mask = np.ones(frame.shape[:-1])
-        bg_color = frame[0][0].copy()
         size = frame.shape[0] * frame.shape[1]
         patches = []
         for i, row in enumerate(mask):
             for j, pix in enumerate(row):
                 if pix == 1:
-                    if np.array_equal(bg_color, frame[i][j]) is True:
+                    if self.is_background(i, j, frame):
                         mask[i][j] = 0
                         continue
                     patches.append(Patch(frame, i, j, mask=mask))
+                    hash(patches[-1])
+
         return patches
+
+    def is_background(self, x, y, frame):
+        bg_color = frame[0][0].copy()
+        return np.array_equal(bg_color, frame[x][y]) is True
+
+    def point_to_patch(self, x, y):
+        pass
 
     def show(self):
         cv2.imshow('frame', self.frame)
@@ -44,15 +81,15 @@ class Patch:
         mask[x][y] = 0
         patch = []
         while len(stack) > 0:
-            cur = stack.pop()
-            patch.append(cur)
-            for i, j in self.get_neighbors(frame, *cur):
+            current_pixel = stack.pop()
+            patch.append(current_pixel)
+            for i, j in self.get_neighboring_patches(frame, *current_pixel):
                 if mask[i][j] == 1:
                     stack.append((i, j))
                     mask[i][j] = 0
         return patch
 
-    def get_neighbors(self, frame, x, y):
+    def get_neighboring_patches(self, frame, x, y):
         neighbors = []
         if x > 0 and y > 0 and np.array_equal(frame[x-1][y-1], frame[x][y]):
             neighbors.append((x-1, y-1))
@@ -92,6 +129,7 @@ class Patch:
             p_arr[x - min_x][y - min_y] = 1
         return p_arr
 
+
     # Debugging --------------------
     def draw_bounding_box(self, frame):
         cp = frame.copy()
@@ -110,17 +148,33 @@ class Patch:
         return cp
 
     def __hash__(self):
-        patch_hash = 0
+        patch_hash = 1
         count = 0
-        for i, row in enumerate(self.patch_as_array):
-            for j, pix in enumerate(row):
-                patch_hash += pix
-                patch_hash << 1
+        for i, pix in enumerate(self.patch_as_array.flatten()):
+            patch_hash = patch_hash << 1
+            if pix:
+                patch_hash += 1
+
         return patch_hash
 
 
+class PatchGraph:
+    def __init__(self, frame):
+        self.frame = frame
+        self.graph = self.build_graph(self.ag)
+
+    def build_graph(self, frame):
+        neighboring_points = []
+        arr = patch.patch_as_array
+        for i, row in enumerate(patch.patch_as_array):
+            for j, pix in enumerate(row):
+                if pix == 1:
+                    n_points = neighboring_points(i, j, patch.patch_as_array)
+                    for x, y in n_points:
+                        if arr[x][y] == 0:
+                            neighboring_points.append((x, y))
 
 if __name__ == "__main__":
     img = cv2.imread('1008-693.png')
     f = Frame(img)
-    print(len(f.patches))
+
