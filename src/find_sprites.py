@@ -20,9 +20,6 @@ from pyspark import SparkContext, SparkConf
 threshold = 0.99
 mask_color = np.array([143, 39, 146])
 
-with open('ten-k-primes.json', 'r') as fp:
-    primes = json.load(fp)
-
 def load_sprites():
     sprite_paths = list(glob('sprites/SuperMarioBros-Nes/*.png'))
     #sprite_paths = ['./sprites/SuperMarioBros-Nes/lil_mario_2.png']
