@@ -2,6 +2,7 @@ from collections import defaultdict
 import itertools
 import json
 import math
+import sys
 
 import cv2
 import numpy as np
@@ -10,21 +11,26 @@ from sprite_util import neighboring_points
 
 class Patch:
     def __init__(self, frame, x_seed, y_seed, mask=None):
-        self._is_self = defaultdict(lambda: False)
-        self.color = tuple(frame[x_seed][y_seed])
+        self._self_pix = {}
         self.patch_as_list = self.get_patch_as_list(frame, mask, x_seed, y_seed)
         for coord in self.patch_as_list:
-            self._is_self[coord] = True
+            self._self_pix[coord] = True
 
-        self.bounding_box = self.get_bounding_box()
+
+        x = [i[0] for i in self.patch_as_list]
+        y = [i[1] for i in self.patch_as_list]
+        self.bounding_box = ((min(x), min(y)), (max(x) + 1, max(y) + 1))
         self.patch_as_array = self.patch_list_to_array(self.patch_as_list, self.bounding_box)
         self.my_hash = None
         self.my_hash = hash(self)
         self.my_hash_with_offset = None
         self.my_hash_with_offset = self.hash_with_offset()
 
+    def get_size(self):
+        return tuple(self.patch_as_array.shape)
+
     def is_self(self, coord):
-        return self._is_self[coord]
+        return self._self_pix.get(coord, False)
 
     def get_patch_as_list(self, frame, mask, x, y):
         if mask is None:
@@ -58,30 +64,23 @@ class Patch:
             nbr_pixels.extend(n)
         nbr_pixel_set = set(nbr_pixels)
 
-        return [i for i in nbr_pixel_set if not self._is_self[i]]
-
-    def get_bounding_box(self):
-        x = [i[0] for i in self.patch_as_list]
-        y = [i[1] for i in self.patch_as_list]
-        return ((min(x), min(y)), (max(x) + 1, max(y) + 1))
+        return [i for i in nbr_pixel_set if not self.is_self(i)]
 
     def patch_list_to_array(self, patch_list, bb):
-        bb_size = (bb[1][0] - bb[0][0],  bb[1][1] - bb[0][1])
+        size = (bb[1][0] - bb[0][0],  bb[1][1] - bb[0][1])
         min_x = bb[0][0]
         min_y = bb[0][1]
 
-        p_arr = np.zeros(bb_size)
+        p_arr = np.zeros(size)
         for x, y in patch_list:
             p_arr[x - min_x][y - min_y] = 1
         return p_arr
-
 
     def __hash__(self):
         if self.my_hash is not None:
             return self.my_hash
 
         patch_hash = 1
-        count = 0
         for i, pix in enumerate(self.patch_as_array.flatten()):
             patch_hash = patch_hash << 1
             if pix:
@@ -121,3 +120,29 @@ class Patch:
             cp[x][y][2] = color[2]
         return cp
 
+
+class NormalizedPatch:
+    def __init__(self, parrent_patch):
+        self.mask = parrent_patch.patch_as_array
+        self.as_list = None
+
+    def get_patch_as_list(self):
+        if self.as_list is not None:
+            return self.as_list
+
+        coords = []
+        for i, row in enumerate(parrent_array):
+            for j, p in enumerate(row):
+                if p != 0:
+                    coords.append((i, j))
+
+        self.as_list = coords
+        return coords
+
+    def __getstate__(self):
+        return {
+            'mask': self.mask,
+        }
+
+    def __setstate__(self, data):
+        self.mask = data['mask']

@@ -152,3 +152,4 @@ docs/_build/
 *.sw[mnop]
 output/
 *.png
+src/sprite_locations.json

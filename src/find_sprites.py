@@ -67,8 +67,6 @@ def mask_frame(frame, mask, x, y, w, h):
                 frame[y + i][x + j] = mask_color
     return frame
 
-
-
 def find_sprite(fsm):
     frame_path, sprites, masks = fsm
     #for i, frame_path in enumerate(frame_paths):

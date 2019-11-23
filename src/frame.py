@@ -3,28 +3,70 @@ from collections import defaultdict
 import cv2
 import numpy as np
 
-from patch import Patch
-from sprite_util import show_image
-#from patch_store import PatchDB
-from patch_graph import PatchGraph
+from patch import Patch, NormalizedPatch
+from sprite_util import show_image, get_frame
+from data_store import PatchDB
 
 class Frame:
-    def __init__(self, frame, bg_color=None):
+    @staticmethod
+    def from_raw_frame(game, play_number, frame_number):
+        return Frame(get_frame(game, play_number, frame_number))
+
+    def __init__(self, frame, game='SuperMarioBros-Nes', bg_color=None):
         self.raw_frame = frame
 
         if bg_color is None:
             self.bg_color = self.raw_frame[0][0].copy()
         else:
             self.bg_color = bg_color
-        #self.db = PatchDB('patch_store.json')
+
+        #self.db = PatchDB('db/')
+
+        self.patch_colors = []
+        self.bounding_boxes = []
+        self.patch_list()
         self.patch_index = defaultdict(list)
         self.pix_index = {}
-        self.patches = self.patch_list()
         self.index_patches()
-        self.palette = set([i.color for i in self.patches])
 
-        #print(f'len patch_index: {len(self.patch_index)}')
-        #print(f'len patches: {len(self.patches)}')
+    def patch_list(self):
+        frame = self.raw_frame
+        mask = np.ones(frame.shape[:-1])
+        size = frame.shape[0] * frame.shape[1]
+        self.patches = []
+        self.bounding_boxes = []
+
+        marked = self.raw_frame.copy()
+        patches = []
+        palette = {}
+        patch_colors = []
+        for i, row in enumerate(mask):
+            for j, pix in enumerate(row):
+                palette[tuple(frame[i][j])] = True
+                if pix == 1:
+                    mask[i][j] = 0
+                    if self.is_background(i, j):
+                        continue
+                    patch = Patch(frame, i, j, mask=mask)
+
+                    for x, y in patch.patch_as_list:
+                        mask[x][y] = 0
+
+                    self.patches.append(patch)
+                    self.bounding_boxes.append(patch.bounding_box)
+                    patch_colors.append(tuple(frame[i][j]))
+
+        #p_keys = []
+        #for i in self.patches:
+        #    norm_patch = NormalizedPatch(i)
+        #    p_keys.append(self.db.add_patch(norm_patch))
+
+        #self.p_keys = {k:v for k, v in zip(p_keys, self.patches)}
+        self.palette = tuple(palette.keys())
+        self.patch_colors = [self.color_as_palette(i) for i in patch_colors]
+
+    def color_as_palette(self, color):
+        return self.palette.index(color)
 
     def get_patches_by_coord(self, coords):
         try:
@@ -37,96 +79,16 @@ class Frame:
 
     def index_patches(self):
         for patch in self.patches:
-            self.patch_index[hash(patch)].append(patch)
+            patch_hash = hash(patch)
+            self.patch_index[patch_hash].append(patch)
 
             for coord in patch.patch_as_list:
                 self.pix_index[coord] = patch
 
-    def patch_list(self):
-        frame = self.raw_frame
-        mask = np.ones(frame.shape[:-1])
-        size = frame.shape[0] * frame.shape[1]
-        patches = []
-        marked = self.raw_frame.copy()
-        for i, row in enumerate(mask):
-            for j, pix in enumerate(row):
-                if pix == 1:
-                    mask[i][j] = 0
-                    if self.is_background(i, j):
-                        continue
-                    patch = Patch(frame, i, j, mask=mask)
-                    for x, y in patch.patch_as_list:
-                        mask[x][y] = 0
-                    patches.append(patch)
-                    #marked = patch.fill_patch(marked)
-                    #show_image(marked)
-                    #marked = patch.fill_patch(marked, color=(0, 0, 255))
-                    #if i > 1:
-                    #    sys.exit(0)
-
-        return patches
-
     def is_background(self, x, y):
         return np.array_equal(self.bg_color, self.raw_frame[x][y]) is True
 
-    def show(self):
-        cv2.imshow('frame', self.frame)
-        cv2.waitKey(0)
-
-
-if __name__ == "__main__":
-    #img = cv2.imread('test-frame.png')
-    #img = cv2.imread('1008-693.png')
-    #f = Frame(img)
-    #PatchGraph(f)
-
-    r = np.array([0, 0, 255], dtype=np.uint8)
-    g = np.array([0, 255, 0], dtype=np.uint8)
-    b = np.array([255, 0, 0], dtype=np.uint8)
-    c = np.array([255, 255, 0], dtype=np.uint8)
-    m = np.array([255, 0, 255], dtype=np.uint8)
-    w = np.array([255, 255, 255], dtype=np.uint8)
-    a = np.array([128, 128, 128], dtype=np.uint8)
-
-    ti1 = np.array([
-        [r, r, r, r, r, r, r, r, r, r],
-        [g, g, g, g, g, g, g, g, g, g],
-        [b, b, b, b, b, b, b, b, b, b],
-        [c, c, c, c, c, c, c, c, c, c],
-        [m, m, m, m, m, m, m, m, m, m],
-        [r, r, r, r, r, r, r, r, r, r],
-        [g, g, g, g, g, g, g, g, g, g],
-        [b, b, b, b, b, b, b, b, b, b],
-        [c, c, c, c, c, c, c, c, c, c],
-        [m, m, m, m, m, m, m, m, m, m],
-    ])
-
-    tf1 = Frame(ti1, bg_color=np.array([0,0,0]))
-    tg1 = PatchGraph(tf1)
-
-    ti2 = np.array([
-        [r, g, b, c, m, r, g, b, c, m],
-        [r, g, b, c, m, r, g, b, c, m],
-        [r, g, b, c, m, r, g, b, c, m],
-        [r, g, b, c, m, r, g, b, c, m],
-        [r, g, b, c, m, r, g, b, c, m],
-    ])
-    tf2 = Frame(ti2, bg_color=np.array([0,0,0]))
-    tg2 = PatchGraph(tf2)
-
-    ti3 = np.array([
-        [r, r, r, r, r, r, r, r, r, r],
-        [g, g, g, g, g, g, g, g, g, g],
-        [b, b, b, b, b, b, b, b, b, b],
-        [c, c, c, w, w, w, w, c, c, c],
-        [m, m, m, w, a, a, w, m, m, m],
-        [r, r, r, w, a, a, w, r, r, r],
-        [g, g, g, w, w, w, w, g, g, g],
-        [b, b, b, b, b, b, b, b, b, b],
-        [c, c, c, c, c, c, c, c, c, c],
-        [m, m, m, m, m, m, m, m, m, m],
-    ])
-    tf3 = Frame(ti3, bg_color=np.array([0,0,0]))
-    tg3 = PatchGraph(tf3)
+    def show(self, scale=None):
+        show_image(self.raw_frame, scale=scale)
 
 
