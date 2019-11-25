@@ -10,8 +10,9 @@ from sprite_util import neighboring_points
 
 
 class Patch:
-    def __init__(self, frame, x_seed, y_seed, mask=None):
+    def __init__(self, frame, x_seed, y_seed, mask=None, indirect=True):
         self._self_pix = {}
+        self.indirect_neighbors = indirect
         self.patch_as_list = self.get_patch_as_list(frame, mask, x_seed, y_seed)
         for coord in self.patch_as_list:
             self._self_pix[coord] = True
@@ -26,8 +27,11 @@ class Patch:
         self.my_hash_with_offset = None
         self.my_hash_with_offset = self.hash_with_offset()
 
-    def get_size(self):
+    def size(self):
         return tuple(self.patch_as_array.shape)
+
+    def area(self):
+        return len(self.patch_as_list)
 
     def is_self(self, coord):
         return self._self_pix.get(coord, False)
@@ -49,7 +53,7 @@ class Patch:
         return patch
 
     def get_neighboring_self_pixels(self, frame, x, y):
-        nbr_coords = neighboring_points(x, y, frame)
+        nbr_coords = neighboring_points(x, y, frame, self.indirect_neighbors)
 
         self_pix = []
         for nx, ny in nbr_coords:

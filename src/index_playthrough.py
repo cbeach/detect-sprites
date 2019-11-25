@@ -20,17 +20,16 @@ play_len = 0
 def index_frame(t):
     i, img, write = t
 
-    f = Frame(img)
-    pg = PatchGraph(f)
+    ifr, dfr = Frame(img), Frame(img, indirect=False)
+    ipg, dpg = PatchGraph(ifr), PatchGraph(dfr)
     now = time.time()
     avg = (now - start) / float(i + 1)
 
     if write is True:
         start_write = time.time()
         with gzip.GzipFile(f'db/SuperMarioBros-Nes/{args.play_number}/{i}.pickle', 'wb') as fp:
-            pickle.dump(pg, fp)
-        print(i)
-    #    print(f'{i}: {now - start}: {avg}: w {time.time() - start_write}: {avg * (len(play_len) - i)}')
+            pickle.dump({'indirect': ipg, 'direct': dpg}, fp)
+        #print(f'{i}: {now - start}: {avg}: w {time.time() - start_write}: {avg * (len(play_len) - i)}')
     #else:
     #    print(f'{i}: {now - start}: {avg}: w-0: {avg * (len(play_len) - i)}')
 

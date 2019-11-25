@@ -116,10 +116,7 @@ def load_indexed_playthrough(play_number):
     frame_paths = glob(f'db/SuperMarioBros-Nes/1000/*')
     number_of_frames = len(frame_paths)
     start = time.time()
-    for i in glob(f'db/SuperMarioBros-Nes/1000/*'):
-        print(i)
-    print(len(frame_paths))
-    return
+
     for i in range(number_of_frames):
         print(i)
         with gzip.GzipFile(f'db/SuperMarioBros-Nes/1000/{i}.pickle', 'rb') as fp:

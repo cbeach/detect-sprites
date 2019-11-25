@@ -9,11 +9,12 @@ from data_store import PatchDB
 
 class Frame:
     @staticmethod
-    def from_raw_frame(game, play_number, frame_number):
-        return Frame(get_frame(game, play_number, frame_number))
+    def from_raw_frame(game, play_number, frame_number, bg_color=None, indirect=True):
+        return Frame(get_frame(game, play_number, frame_number), bg_color=bg_color, indirect=True)
 
-    def __init__(self, frame, game='SuperMarioBros-Nes', bg_color=None):
+    def __init__(self, frame, game='SuperMarioBros-Nes', bg_color=None, indirect=True):
         self.raw_frame = frame
+        self.indirect = indirect
 
         if bg_color is None:
             self.bg_color = self.raw_frame[0][0].copy()
@@ -47,7 +48,7 @@ class Frame:
                     mask[i][j] = 0
                     if self.is_background(i, j):
                         continue
-                    patch = Patch(frame, i, j, mask=mask)
+                    patch = Patch(frame, i, j, mask=mask, indirect=self.indirect)
 
                     for x, y in patch.patch_as_list:
                         mask[x][y] = 0

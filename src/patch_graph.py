@@ -9,8 +9,8 @@ import numpy as np
 
 class PatchGraph:
     @staticmethod
-    def from_raw_frame(game, play_number, frame_number):
-        return PatchGraph(Frame(get_frame(game, play_number, frame_number)))
+    def from_raw_frame(game, play_number, frame_number, bg_color=None, indirect=True):
+        return PatchGraph(Frame(get_frame(game, play_number, frame_number), bg_color=bg_color, indirect=indirect))
 
     def __init__(self, frame):
         self.frame = frame
@@ -113,6 +113,9 @@ class PatchGraph:
             o_subgraphs.append(ohs)
 
         return (subgraphs, o_subgraphs)
+
+    def subgraph_area(self, subgraph):
+        return sum(map(lambda p: p.area(), subgraph))
 
     # --- Debugging ---
     def print_adjacency_matrix(self):
