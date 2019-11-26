@@ -61,10 +61,10 @@ class Patch:
                 self_pix.append((nx, ny))
         return self_pix
 
-    def get_neighboring_patch_pixels(self, frame_obj):
+    def get_neighboring_patch_pixels(self, frame):
         nbr_pixels = []
         for x, y in self.patch_as_list:
-            n = neighboring_points(x, y, frame_obj.raw_frame)
+            n = neighboring_points(x, y, frame)
             nbr_pixels.extend(n)
         nbr_pixel_set = set(nbr_pixels)
 

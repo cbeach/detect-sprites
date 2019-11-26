@@ -9,7 +9,6 @@ import time
 import jsonpickle
 import cv2
 
-from frame import Frame
 from patch_graph import PatchGraph
 from data_store import PatchDB
 from sprite_util import show_image, get_image_list, get_playthrough, load_indexed_playthrough
@@ -18,8 +17,22 @@ from sprite_util import show_image, get_image_list, get_playthrough, load_indexe
 
 if __name__ == '__main__':
     pt = list(load_indexed_playthrough(1000))
-
-
+    direct = [i['direct'] for i in pt]
+    indirect = [i['indirect'] for i in pt]
+    direct_sgs = []
+    hsh_set = {}
+    for i in direct:
+        sg = i.isolate_offset_subgraphs()
+        hashes = []
+        for j in sg:
+            for k in j:
+                t1 = sorted(map(lambda a: hash(a), k))
+                t2 = tuple(t1)
+                hsh_set[t2] = k
+    print(hsh_set)
+    print(len(hsh_set))
+    time.sleep(10)
+        #direct_sgs.append(temp)
     #ipg = PatchGraph.from_raw_frame('SuperMarioBros-Nes', 1000, 98, indirect=True)
     #dpg = PatchGraph.from_raw_frame('SuperMarioBros-Nes', 1000, 98, indirect=False)
     #dsg, dohs = dpg.isolate_offset_subgraphs()

@@ -1,8 +1,8 @@
 # To Do
 
   [x] Refactor directory structure
-  [.] Load play through from npz file
+  [x] Load play through from npz file
+  [x] Sub-graph isolation
   [.] Graph traversal
-  [.] Sub-graph isolation
   [.] Correlate patch occurrences 
   [.]

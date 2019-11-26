@@ -1,28 +1,48 @@
+from collections import defaultdict
 import itertools
 import pickle
 import sys
 from time import time
-from sprite_util import neighboring_points, get_frame
-from frame import Frame
 
+import cv2
 import numpy as np
+
+from patch import Patch, NormalizedPatch
+from sprite_util import show_image, get_frame, neighboring_points
 
 class PatchGraph:
     @staticmethod
     def from_raw_frame(game, play_number, frame_number, bg_color=None, indirect=True):
-        return PatchGraph(Frame(get_frame(game, play_number, frame_number), bg_color=bg_color, indirect=indirect))
+        return PatchGraph(get_frame(game, play_number, frame_number), bg_color=bg_color, indirect=indirect)
 
-    def __init__(self, frame):
-        self.frame = frame
+    def __init__(self, frame, game='SuperMarioBros-Nes', bg_color=None, indirect=True):
+        # Frame init
+        self.raw_frame = frame
 
+        self.raw_frame = frame
+        self.indirect = indirect
+
+        if bg_color is None:
+            self.bg_color = self.raw_frame[0][0].copy()
+        else:
+            self.bg_color = bg_color
+
+        self.patch_colors = []
+        self.bounding_boxes = []
+        self.parse_frame()
+        self.patch_index = defaultdict(list)
+        self.pix_index = {}
+        self.index_patches()
+
+        # graph init
         start = time()
-        self.hash_to_patch = {hash(i):i for i in self.frame.patches}
-        self.offset_hash_to_patch = {i.hash_with_offset():i for i in self.frame.patches}
+        self.hash_to_patch = {hash(i):i for i in self.patches}
+        self.offset_hash_to_patch = {i.hash_with_offset():i for i in self.patches}
         #print(f'    1: {time() - start}')
 
         start = time()
-        self.hashes = sorted(list(set([hash(i) for i in self.frame.patches])))
-        self.offset_hashes = sorted([i.hash_with_offset() for i in self.frame.patches])
+        self.hashes = sorted(list(set([hash(i) for i in self.patches])))
+        self.offset_hashes = sorted([i.hash_with_offset() for i in self.patches])
         #print(f'    2: {time() - start}')
 
         start = time()
@@ -34,11 +54,11 @@ class PatchGraph:
         #print(f'    3: {time() - start}')
 
         start = time()
-        self.offset_hash_to_hash = {i.hash_with_offset():hash(i) for i in self.frame.patches}
+        self.offset_hash_to_hash = {i.hash_with_offset():hash(i) for i in self.patches}
 
         self.hash_to_offset_hash = {}
-        for i in self.frame.patches:
-            {hash(i):i.hash_with_offset() for i in self.frame.patches}
+        for i in self.patches:
+            {hash(i):i.hash_with_offset() for i in self.patches}
 
             p_hash = hash(i)
             o_hash = i.hash_with_offset()
@@ -55,16 +75,46 @@ class PatchGraph:
         self.graph = self.build_graph()
         #print(f'    6: {time() - start}')
 
+    def parse_frame(self):
+        frame = self.raw_frame
+        mask = np.ones(frame.shape[:-1])
+        size = frame.shape[0] * frame.shape[1]
+        self.patches = []
+        self.bounding_boxes = []
+
+        marked = self.raw_frame.copy()
+        patches = []
+        palette = {}
+        patch_colors = []
+        for i, row in enumerate(mask):
+            for j, pix in enumerate(row):
+                palette[tuple(frame[i][j])] = True
+                if pix == 1:
+                    mask[i][j] = 0
+                    if self.is_background(i, j):
+                        continue
+                    patch = Patch(frame, i, j, mask=mask, indirect=self.indirect)
+
+                    for x, y in patch.patch_as_list:
+                        mask[x][y] = 0
+
+                    self.patches.append(patch)
+                    self.bounding_boxes.append(patch.bounding_box)
+                    patch_colors.append(tuple(frame[i][j]))
+
+        self.palette = tuple(palette.keys())
+        self.patch_colors = [self.color_as_palette(i) for i in patch_colors]
+
     def build_graph(self):
         """
             For each patch, get the list of pixels just outside the patch's outer edge.
             Use that list of pixels to find all patches that are touching this one.
         """
-        for patch in self.frame.patches:
+        for patch in self.patches:
             current_hash = hash(patch)
             current_offset_hash = patch.hash_with_offset()
             nbr_pixels = patch.get_neighboring_patch_pixels(self.frame)
-            nbr_patches = list(set(self.frame.get_patches_by_coord(nbr_pixels)))
+            nbr_patches = list(set(self.get_patches_by_coord(nbr_pixels)))
             for npatch in nbr_patches:
                 npatch_hash = hash(npatch)
                 npatch_offset_hash = npatch.hash_with_offset()
@@ -117,6 +167,29 @@ class PatchGraph:
     def subgraph_area(self, subgraph):
         return sum(map(lambda p: p.area(), subgraph))
 
+    def color_as_palette(self, color):
+        return self.palette.index(color)
+
+    def get_patches_by_coord(self, coords):
+        try:
+            iter(coords)
+        except TypeError:
+            return [self.pix_index[coords]]
+
+        background_filtered_out = [c for c in coords if not self.is_background(c[0], c[1])]
+        return [self.pix_index[c] for c in background_filtered_out]
+
+    def index_patches(self):
+        for patch in self.patches:
+            patch_hash = hash(patch)
+            self.patch_index[patch_hash].append(patch)
+
+            for coord in patch.patch_as_list:
+                self.pix_index[coord] = patch
+
+    def is_background(self, x, y):
+        return np.array_equal(self.bg_color, self.raw_frame[x][y]) is True
+
     # --- Debugging ---
     def print_adjacency_matrix(self):
         print()
@@ -141,3 +214,6 @@ class PatchGraph:
             frame = i.fill_patch(frame)
 
         return frame
+
+    def show(self, scale=None):
+        show_image(self.raw_frame, scale=scale)

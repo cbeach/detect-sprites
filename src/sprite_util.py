@@ -112,10 +112,13 @@ def get_playthrough(game='SuperMarioBros-Nes', play_number=None):
     else:
         raise TypeError
 
-def load_indexed_playthrough(play_number):
+def load_indexed_playthrough(play_number, count=None):
     frame_paths = glob(f'db/SuperMarioBros-Nes/1000/*')
-    number_of_frames = len(frame_paths)
     start = time.time()
+    if count is None:
+        number_of_frames = len(frame_paths)
+    else:
+        number_of_frames = count
 
     for i in range(number_of_frames):
         print(i)
