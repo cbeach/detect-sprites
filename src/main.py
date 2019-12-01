@@ -16,7 +16,7 @@ from sprite_util import show_image, get_image_list, get_playthrough, load_indexe
 
 
 if __name__ == '__main__':
-    pt = list(load_indexed_playthrough(1000))
+    pt = list(load_indexed_playthrough(1000, count=100))
     direct = [i['direct'] for i in pt]
     indirect = [i['indirect'] for i in pt]
     direct_sgs = []
@@ -29,9 +29,6 @@ if __name__ == '__main__':
                 t1 = sorted(map(lambda a: hash(a), k))
                 t2 = tuple(t1)
                 hsh_set[t2] = k
-    print(hsh_set)
-    print(len(hsh_set))
-    time.sleep(10)
         #direct_sgs.append(temp)
     #ipg = PatchGraph.from_raw_frame('SuperMarioBros-Nes', 1000, 98, indirect=True)
     #dpg = PatchGraph.from_raw_frame('SuperMarioBros-Nes', 1000, 98, indirect=False)

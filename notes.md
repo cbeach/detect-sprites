@@ -2,7 +2,7 @@
 ## Patch Graph
 
   * A Patch Graph is a collection of graphs
-  * Combine the PatchGraph and Frame classes (move Frame into PatchGraph)
+  x Combine the PatchGraph and Frame classes (move Frame into PatchGraph)
 
 ## Node Class
   * Contains helper functions such as patch color and position
@@ -12,7 +12,7 @@
 # Sprite isolation strategies
 
   * Mark nodes as "edge nodes" if they touch the background or edge of the screen
-  * Create hash function for graph node
+  * Create hash function for graph nodes
     * Combines patch hash with neighbor's hashes and relative offset
   * Small (< 300px) disjoint sub-graphs could be single sprites
   * Use both direct and indirect image traversal for patch parsing

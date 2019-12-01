@@ -10,7 +10,9 @@ import cv2
 
 DATA_DIR = os.environ['DATA_DIR'] if 'DATA_DIR' in os.environ else '/home/mcsmash/dev/data'
 PLAY_DIR = f'{DATA_DIR}/game_playing/play_data/'
-PNG_TMPL = '/home/mcsmash/dev/data/game_playing/play_data/{game}/frames/{play_number}-{frame_number}.png'
+PNG_TMPL = '{DATA_DIR}/game_playing/play_data/{game}/frames/{play_number}-{frame_number}.png'
+PICKLE_DIR = './db/SuperMarioBros-Nes/pickle'
+
 GAMES = {
     'NES': ['1942-Nes', '1943-Nes', '8Eyes-Nes', 'AbadoxTheDeadlyInnerWar-Nes', 'AddamsFamily-Nes', 'AddamsFamilyPugsleysScavengerHunt-Nes', 'AdventureIsland3-Nes', 'AdventureIslandII-Nes', 'AdventuresOfBayouBilly-Nes',
         'AdventuresOfDinoRiki-Nes', 'AdventuresOfRockyAndBullwinkleAndFriends-Nes', 'Airwolf-Nes', 'AlfredChicken-Nes', 'Alien3-Nes', 'AlphaMission-Nes', 'Amagon-Nes', 'Argus-Nes', 'Arkanoid-Nes', 'ArkistasRing-Nes',
@@ -104,7 +106,7 @@ def get_image_list(game='SuperMarioBros-Nes', play_number=None):
         return glob(f'{PLAY_DIR}/{game}/{play_number}/*')
 
 def get_frame(game, play_number, frame_number):
-    return cv2.imread(PNG_TMPL.format(game=game, play_number=play_number, frame_number=frame_number))
+    return cv2.imread(PNG_TMPL.format(DATA_DIR=DATA_DIR, game=game, play_number=play_number, frame_number=frame_number))
 def get_playthrough(game='SuperMarioBros-Nes', play_number=None):
     if play_number is not None:
         d = np.load(f'{PLAY_DIR}/{game}/{play_number}/frames.npz')
@@ -113,7 +115,12 @@ def get_playthrough(game='SuperMarioBros-Nes', play_number=None):
         raise TypeError
 
 def load_indexed_playthrough(play_number, count=None):
-    frame_paths = glob(f'db/SuperMarioBros-Nes/1000/*')
+    db_path = get_db_path(play_number)
+    if not ensure_dir(db_path):
+        frame_paths = []
+    else:
+        frame_paths = glob(f'{db_path}/*')
+
     start = time.time()
     if count is None:
         number_of_frames = len(frame_paths)
@@ -122,5 +129,16 @@ def load_indexed_playthrough(play_number, count=None):
 
     for i in range(number_of_frames):
         print(i)
-        with gzip.GzipFile(f'db/SuperMarioBros-Nes/1000/{i}.pickle', 'rb') as fp:
+        with gzip.GzipFile(f'{PICKLE_DIR}/{play_number}/{i}.pickle', 'rb') as fp:
             yield pickle.load(fp)
+
+def get_db_path(play_number, backend='pickle'):
+    if backend == 'pickle':
+        return f'{PICKLE_DIR}/{play_number}'
+
+def ensure_dir(path):
+    if not os.path.isdir(path):
+        os.makedirs(path)
+        return False
+    return True
+

@@ -7,7 +7,7 @@ from time import time
 import cv2
 import numpy as np
 
-from patch import Patch, NormalizedPatch
+from patch import Node
 from sprite_util import show_image, get_frame, neighboring_points
 
 class PatchGraph:
@@ -17,8 +17,6 @@ class PatchGraph:
 
     def __init__(self, frame, game='SuperMarioBros-Nes', bg_color=None, indirect=True):
         # Frame init
-        self.raw_frame = frame
-
         self.raw_frame = frame
         self.indirect = indirect
 
@@ -37,13 +35,11 @@ class PatchGraph:
         # graph init
         start = time()
         self.hash_to_patch = {hash(i):i for i in self.patches}
-        self.offset_hash_to_patch = {i.hash_with_offset():i for i in self.patches}
-        #print(f'    1: {time() - start}')
+        self.offset_hash_to_patch = {i.offset_hash():i for i in self.patches}
 
         start = time()
         self.hashes = sorted(list(set([hash(i) for i in self.patches])))
-        self.offset_hashes = sorted([i.hash_with_offset() for i in self.patches])
-        #print(f'    2: {time() - start}')
+        self.offset_hashes = sorted([i.offset_hash() for i in self.patches])
 
         start = time()
         self.hash_to_index = {self.hashes[i]:i for i in range(len(self.hashes))}
@@ -51,17 +47,14 @@ class PatchGraph:
 
         self.index_to_hash = {i:self.hashes[i] for i in range(len(self.hashes))}
         self.index_to_offset_hash = {i:self.offset_hashes[i] for i in range(len(self.offset_hashes))}
-        #print(f'    3: {time() - start}')
 
         start = time()
-        self.offset_hash_to_hash = {i.hash_with_offset():hash(i) for i in self.patches}
+        self.offset_hash_to_hash = {i.offset_hash():hash(i) for i in self.patches}
 
         self.hash_to_offset_hash = {}
         for i in self.patches:
-            {hash(i):i.hash_with_offset() for i in self.patches}
-
             p_hash = hash(i)
-            o_hash = i.hash_with_offset()
+            o_hash = i.offset_hash()
             if self.hash_to_offset_hash.get(p_hash, None) is None:
                 self.hash_to_offset_hash[p_hash] = [o_hash]
             else:
@@ -70,10 +63,8 @@ class PatchGraph:
         start = time()
         self.adjacency_matrix = np.zeros((len(self.hashes), len(self.hashes)), dtype=bool)
         self.offset_adjacency_matrix = np.zeros((len(self.offset_hashes), len(self.offset_hashes)), dtype=bool)
-        #print(f'    5: {time() - start}')
 
         self.graph = self.build_graph()
-        #print(f'    6: {time() - start}')
 
     def parse_frame(self):
         frame = self.raw_frame
@@ -82,7 +73,6 @@ class PatchGraph:
         self.patches = []
         self.bounding_boxes = []
 
-        marked = self.raw_frame.copy()
         patches = []
         palette = {}
         patch_colors = []
@@ -93,13 +83,13 @@ class PatchGraph:
                     mask[i][j] = 0
                     if self.is_background(i, j):
                         continue
-                    patch = Patch(frame, i, j, mask=mask, indirect=self.indirect)
+                    node = Node(frame, i, j, mask=mask, indirect=self.indirect)
 
-                    for x, y in patch.patch_as_list:
+                    for x, y in node.coord_list():
                         mask[x][y] = 0
 
-                    self.patches.append(patch)
-                    self.bounding_boxes.append(patch.bounding_box)
+                    self.patches.append(node)
+                    self.bounding_boxes.append(node.bounding_box)
                     patch_colors.append(tuple(frame[i][j]))
 
         self.palette = tuple(palette.keys())
@@ -112,12 +102,12 @@ class PatchGraph:
         """
         for patch in self.patches:
             current_hash = hash(patch)
-            current_offset_hash = patch.hash_with_offset()
-            nbr_pixels = patch.get_neighboring_patch_pixels(self.frame)
+            current_offset_hash = patch.offset_hash()
+            nbr_pixels = patch.get_neighboring_patch_pixels(self.raw_frame)
             nbr_patches = list(set(self.get_patches_by_coord(nbr_pixels)))
             for npatch in nbr_patches:
                 npatch_hash = hash(npatch)
-                npatch_offset_hash = npatch.hash_with_offset()
+                npatch_offset_hash = npatch.offset_hash()
                 self.adjacency_matrix[self.hash_to_index[current_hash]][self.hash_to_index[npatch_hash]] = True
                 self.offset_adjacency_matrix[self.offset_hash_to_index[current_offset_hash]][self.offset_hash_to_index[npatch_offset_hash]] = True
 
@@ -184,7 +174,7 @@ class PatchGraph:
             patch_hash = hash(patch)
             self.patch_index[patch_hash].append(patch)
 
-            for coord in patch.patch_as_list:
+            for coord in patch.coord_list():
                 self.pix_index[coord] = patch
 
     def is_background(self, x, y):
