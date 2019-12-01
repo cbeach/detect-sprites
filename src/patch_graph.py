@@ -67,14 +67,25 @@ class PatchGraph:
         self.graph = self.build_graph()
 
         for i in self.patches:
-            edge = (i.bounding_box[0][0] == 0 or i.bounding_box[0][1] == 0
-                    or i.bounding_box[0][0] == frame.shape[0] - 1
-                    or i.bounding_box[0][1] == frame.shape[0] - 1)
+            if (i.bounding_box[0][0] == 0 or i.bounding_box[0][1] == 0
+                or i.bounding_box[1][0] == frame.shape[0]
+                or i.bounding_box[1][1] == frame.shape[1]):
+                i.mark_as_frame_edge()
 
-            for x, y in i.get_neighboring_patch_pixels(i.raw_frame):
-                print(x, y)
+            for x, y in i.get_neighboring_patch_pixels(self.raw_frame):
+                if self.is_background(x, y):
+                    i.mark_as_bg_edge()
+                    break
 
-
+        temp = self.raw_frame.copy()
+        for i in self.patches:
+            if i.bg_edge is True and i.frame_edge is True:
+                temp = i.fill_patch(temp, color=(255, 0, 255))
+            elif i.bg_edge is True:
+                temp = i.fill_patch(temp, color=(255, 0, 0))
+            elif i.frame_edge is True:
+                temp = i.fill_patch(temp, color=(0, 0, 255))
+        show_image(temp, scale=2)
     def parse_frame(self):
         frame = self.raw_frame
         mask = np.ones(frame.shape[:-1])

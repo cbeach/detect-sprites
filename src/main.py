@@ -24,8 +24,8 @@ if __name__ == '__main__':
 
     dpg = PatchGraph.from_raw_frame('SuperMarioBros-Nes', 1000, 98, indirect=False)
     sg = dpg.isolate_offset_subgraphs()[0]
-    for i, dg in enumerate(sg):
-        dpg.show_subgraph(dg)
+    #for i, dg in enumerate(sg):
+    #    dpg.show_subgraph(dg)
 
         #direct_sgs.append(temp)
     #ipg = PatchGraph.from_raw_frame('SuperMarioBros-Nes', 1000, 98, indirect=True)

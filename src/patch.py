@@ -23,8 +23,14 @@ class Node:
         for coord in self.coord_list():
             self._self_pix[coord] = True
 
-    def mark_as_edge(self):
-        self.edge = True
+        self.frame_edge = False
+        self.bg_edge = False
+
+    def mark_as_frame_edge(self):
+        self.frame_edge = True
+
+    def mark_as_bg_edge(self):
+        self.bg_edge = True
 
     def coord_list(self):
         if self._coord_list:
