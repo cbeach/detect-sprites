@@ -91,7 +91,7 @@ def neighboring_points(x, y, arr, indirect=True):
 
     return neighbors
 
-def show_image(img, scale=None):
+def show_image(img, scale=1.0):
     cv2.imshow('frame', cv2.resize(img, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST))
     cv2.waitKey(0)
 
@@ -128,7 +128,7 @@ def load_indexed_playthrough(play_number, count=None):
         number_of_frames = count
 
     for i in range(number_of_frames):
-        print(i)
+        print(f'loading: {i}')
         with gzip.GzipFile(f'{PICKLE_DIR}/{play_number}/{i}.pickle', 'rb') as fp:
             yield pickle.load(fp)
 

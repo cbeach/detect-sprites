@@ -207,3 +207,34 @@ class PatchGraph:
 
     def show(self, scale=None):
         show_image(self.raw_frame, scale=scale)
+
+    def show_subgraph(self, subgraph):
+        xs = []
+        ys = []
+        bbs = []
+        for i in subgraph:
+            xs.append(i.bounding_box[0][0])
+            xs.append(i.bounding_box[1][0])
+            ys.append(i.bounding_box[0][1])
+            ys.append(i.bounding_box[1][1])
+            bbs.append(i.bounding_box)
+        bb = ((min(xs), min(ys)), (max(xs), max(ys)))
+
+        left_most = list(filter(lambda p: p.bounding_box[0][1] == bb[0][1], subgraph))
+        top_left_patch = list(sorted(left_most, key=lambda p: p.bounding_box[0][0]))[0]
+        tlpbb = top_left_patch.bounding_box
+        xt, yt = (tlpbb[0][0] - bb[0][0], tlpbb[0][1] - bb[0][1])
+
+        shape = bb[1][0] - bb[0][0], bb[1][1] - bb[0][1], 3
+        frame = np.zeros(shape, dtype='uint8')
+
+        for x, y in top_left_patch.patch._patch.translate(xt, yt):
+            frame[x][y] = top_left_patch.color
+
+        for i in subgraph:
+            ibb = i.bounding_box
+            xt, yt = (ibb[0][0] - bb[0][0], ibb[0][1] - bb[0][1])
+            for x, y in i.patch._patch.translate(xt, yt):
+                frame[x][y] = i.color
+
+        show_image(frame, scale=3)

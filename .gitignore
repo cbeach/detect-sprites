@@ -153,3 +153,5 @@ docs/_build/
 output/
 *.png
 src/sprite_locations.json
+src/db
+*.pyprof

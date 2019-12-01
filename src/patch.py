@@ -12,6 +12,7 @@ from sprite_util import neighboring_points
 class Node:
     def __init__(self, frame, x_seed, y_seed, mask=None, indirect=True):
         self.patch = Patch(frame, x_seed, y_seed, mask, indirect)
+        self.color = frame[x_seed][y_seed]
         self._coord_list = None
         self.bounding_box = self.patch._bb
 
@@ -65,6 +66,11 @@ class Node:
 
         self.my_offset_hash = with_offset
         return with_offset
+
+    def get_relative_offset(self, other_patch):
+        other_bb = other_patch.bounding_box
+        return ((other_bb[0][0] - self.bounding_box[0][0], other_bb[0][1] - self.bounding_box[0][1]),
+                (other_bb[1][0] - self.bounding_box[1][0], other_bb[1][1] - self.bounding_box[1][1]))
 
     # Debugging --------------------
     def draw_bounding_box(self, frame):
@@ -184,3 +190,15 @@ class Patch:
 
     def __hash__(self):
         return hash(self._patch)
+
+    #def __getstate__(self):
+    #    return {
+    #        '__PATCHES': Patch.__PATCHES,
+    #        '_patch': self._patch,
+    #        '_bb': self._bb,
+    #    }
+
+    #def __setstate__(self, data):
+    #    Patch.__PATCHES = data['__PATCHES']
+    #    self._patch = data['_patch']
+    #    self._bb = data['_bb']

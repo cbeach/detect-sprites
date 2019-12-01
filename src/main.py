@@ -16,19 +16,18 @@ from sprite_util import show_image, get_image_list, get_playthrough, load_indexe
 
 
 if __name__ == '__main__':
-    pt = list(load_indexed_playthrough(1000, count=100))
-    direct = [i['direct'] for i in pt]
-    indirect = [i['indirect'] for i in pt]
-    direct_sgs = []
-    hsh_set = {}
-    for i in direct:
-        sg = i.isolate_offset_subgraphs()
-        hashes = []
-        for j in sg:
-            for k in j:
-                t1 = sorted(map(lambda a: hash(a), k))
-                t2 = tuple(t1)
-                hsh_set[t2] = k
+    #pt = list(load_indexed_playthrough(1000, count=1))
+    #direct = [i['direct'] for i in pt]
+    #indirect = [i['indirect'] for i in pt]
+    #direct_sgs = []
+    #hsh_set = {}
+
+    dpg = PatchGraph.from_raw_frame('SuperMarioBros-Nes', 1000, 98, indirect=False)
+    #dpg.show(scale=2)
+    sg = dpg.isolate_offset_subgraphs()[0]
+    for i, dg in enumerate(sg):
+        dpg.show_subgraph(dg)
+
         #direct_sgs.append(temp)
     #ipg = PatchGraph.from_raw_frame('SuperMarioBros-Nes', 1000, 98, indirect=True)
     #dpg = PatchGraph.from_raw_frame('SuperMarioBros-Nes', 1000, 98, indirect=False)
