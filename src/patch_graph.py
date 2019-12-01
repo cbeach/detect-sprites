@@ -66,6 +66,15 @@ class PatchGraph:
 
         self.graph = self.build_graph()
 
+        for i in self.patches:
+            edge = (i.bounding_box[0][0] == 0 or i.bounding_box[0][1] == 0
+                    or i.bounding_box[0][0] == frame.shape[0] - 1
+                    or i.bounding_box[0][1] == frame.shape[0] - 1)
+
+            for x, y in i.get_neighboring_patch_pixels(i.raw_frame):
+                print(x, y)
+
+
     def parse_frame(self):
         frame = self.raw_frame
         mask = np.ones(frame.shape[:-1])

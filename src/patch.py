@@ -23,6 +23,9 @@ class Node:
         for coord in self.coord_list():
             self._self_pix[coord] = True
 
+    def mark_as_edge(self):
+        self.edge = True
+
     def coord_list(self):
         if self._coord_list:
             return self._coord_list
