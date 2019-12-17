@@ -9,9 +9,9 @@ import time
 import jsonpickle
 import cv2
 
-from patch_graph import PatchGraph
+from patch_graph import FrameGraph
 from data_store import PatchDB
-from sprite_util import show_image, get_image_list, get_playthrough, load_indexed_playthrough
+from sprite_util import show_image, get_image_list, get_playthrough, load_indexed_playthrough, sort_colors
 
 
 
@@ -22,15 +22,19 @@ if __name__ == '__main__':
     #direct_sgs = []
     #hsh_set = {}
 
-    dpg = PatchGraph.from_raw_frame('SuperMarioBros-Nes', 1000, 98, indirect=False)
-    sg = dpg.isolate_offset_subgraphs()[0]
-    #for i, dg in enumerate(sg):
-    #    dpg.show_subgraph(dg)
+    dpg = FrameGraph.from_raw_frame('SuperMarioBros-Nes', 1000, 98, indirect=False)
+    sgs = dpg.subgraphs()
+    esc_key = 27
+    for i, sg in enumerate(sgs):
+        resp, sprite = sg.ask_if_sprite(bg_color=(255, 0, 0))
+        #resp = sg.show()
+        if resp == 27:
+            break
 
         #direct_sgs.append(temp)
-    #ipg = PatchGraph.from_raw_frame('SuperMarioBros-Nes', 1000, 98, indirect=True)
-    #dpg = PatchGraph.from_raw_frame('SuperMarioBros-Nes', 1000, 98, indirect=False)
-    #dsg, dohs = dpg.isolate_offset_subgraphs()
+    #ipg = FrameGraph.from_raw_frame('SuperMarioBros-Nes', 1000, 98, indirect=True)
+    #dpg = FrameGraph.from_raw_frame('SuperMarioBros-Nes', 1000, 98, indirect=False)
+    #dsg, dohs = dpg.subgraphs()
     #print(f'len(dpg.offset_hashes): {len(dpg.offset_hashes)}')
     #print(f'len(list(itertools.chain(*dsg))): {len(list(itertools.chain(*dsg)))}')
     #print(f'len(list(itertools.chain(*dohs))): {len(list(itertools.chain(*dohs)))}')

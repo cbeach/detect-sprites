@@ -1,5 +1,7 @@
+from collections import defaultdict
 from glob import glob
 import gzip
+import itertools
 import os
 import pickle
 import random
@@ -93,7 +95,7 @@ def neighboring_points(x, y, arr, indirect=True):
 
 def show_image(img, scale=1.0):
     cv2.imshow('frame', cv2.resize(img, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST))
-    cv2.waitKey(0)
+    return cv2.waitKeyEx(0)
 
 def get_image_list(game='SuperMarioBros-Nes', play_number=None):
     print('Loading image file list')
@@ -142,3 +144,9 @@ def ensure_dir(path):
         return False
     return True
 
+def sort_colors(color_list):
+    """
+        Don't judge me. My brain isn't working.
+    """
+    cl = sorted([f'{chr(b)}{chr(g)}{chr(r)}' for b, g, r in color_list])
+    return [(ord(b), ord(g), ord(r)) for b, g, r in cl]

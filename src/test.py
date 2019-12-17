@@ -1,11 +1,11 @@
 import numpy as np
 
-from patch_graph import PatchGraph
+from patch_graph import FrameGraph
 
 def main():
     #img = cv2.imread('./test/test-examples/SuperMarioBros-Nes/test_frames/test-frame.png')
     #f = Frame(img)
-    #PatchGraph(f)
+    #FrameGraph(f)
 
     r = np.array([0, 0, 255], dtype=np.uint8)
     g = np.array([0, 255, 0], dtype=np.uint8)
@@ -29,7 +29,7 @@ def main():
         [m, m, m, m, m, m, m, m, m, m],
     ])
 
-    tg1 = PatchGraph(ti1, bg_color=np.array([0,0,0]))
+    tg1 = FrameGraph(ti1, bg_color=np.array([0,0,0]))
     assert(len(tg1.patches) == 10)
 
     ti2 = np.array([
@@ -39,7 +39,7 @@ def main():
         [r, g, b, c, m, r, g, b, c, m],
         [r, g, b, c, m, r, g, b, c, m],
     ])
-    tg2 = PatchGraph(ti2, bg_color=np.array([0,0,0]))
+    tg2 = FrameGraph(ti2, bg_color=np.array([0,0,0]))
     assert(len(tg2.patches) == 10)
 
     ti3 = np.array([
@@ -54,7 +54,7 @@ def main():
         [c, c, c, c, c, c, c, c, c, c],
         [m, m, m, m, m, m, m, m, m, m],
     ])
-    tg3 = PatchGraph(ti3, bg_color=np.array([0,0,0]))
+    tg3 = FrameGraph(ti3, bg_color=np.array([0,0,0]))
     assert(len(tg3.patches) == 16)
 
     ti4 = np.array([
@@ -69,8 +69,8 @@ def main():
         [b, b, b, b, b, w, b, b, b, b, b],
         [b, b, b, b, b, w, b, b, b, b, b],
     ])
-    tg4 = PatchGraph(ti4, bg_color=w)
-    sg4 = tg4.isolate_offset_subgraphs()
+    tg4 = FrameGraph(ti4, bg_color=w)
+    sg4 = tg4.subgraphs()
     assert(len(tg4.patches) == 4)
     assert(len(sg4) == 2)
 
@@ -80,8 +80,8 @@ def main():
         [b, b, w, b, b],
         [b, b, w, b, b],
     ])
-    tg5 = PatchGraph(ti5, bg_color=w)
-    sg5 = tg5.isolate_offset_subgraphs()
+    tg5 = FrameGraph(ti5, bg_color=w)
+    sg5 = tg5.subgraphs()
     assert(len(tg5.patches) == 4)
     assert(len(sg5) == 2)
 

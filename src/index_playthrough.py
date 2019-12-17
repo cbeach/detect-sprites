@@ -8,7 +8,7 @@ import time
 from data_store import PatchDB
 from sprite_util import get_image_list, get_playthrough, load_indexed_playthrough, get_db_path, ensure_dir
 
-from patch_graph import PatchGraph
+from patch_graph import FrameGraph
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-p', '--play', type=int, required=True, help="the play number that you want to index", dest='play_number')
@@ -21,7 +21,7 @@ length = 0
 def index_frame(t):
     i, img, read_only = t
 
-    ipg, dpg = PatchGraph(img), PatchGraph(img, indirect=False)
+    ipg, dpg = FrameGraph(img), FrameGraph(img, indirect=False)
 
     if read_only is False:
         start_write = time.time()

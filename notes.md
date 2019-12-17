@@ -1,12 +1,7 @@
-# Refactor
-## Patch Graph
+# Serialize and store
 
-  * A Patch Graph is a collection of graphs
-  x Combine the PatchGraph and Frame classes (move Frame into PatchGraph)
-
-## Node Class
-  * Contains helper functions such as patch color and position
-    * Move patch color and position out of patch and into Node
+  * Use sqlalchemy to store frame graphs
+    * Construct Schema
 
 
 # Sprite isolation strategies
@@ -34,4 +29,17 @@
       }
     * PUT /sprite
       - Body: [ patches ]
+
+# Done
+## Refactor
+### Patch Graph
+
+  * A Patch Graph is a collection of graphs
+    [.] Patch Graph copy constructor
+  x Combine the PatchGraph and Frame classes (move Frame into PatchGraph)
+
+### Node Class
+  * Contains helper functions such as patch color and position
+    * Move patch color and position out of patch and into Node
+
 

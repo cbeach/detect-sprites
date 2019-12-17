@@ -1,5 +1,6 @@
 from collections import defaultdict
 import itertools
+from math import ceil
 import pickle
 import sys
 from time import time
@@ -8,14 +9,21 @@ import cv2
 import numpy as np
 
 from patch import Node
-from sprite_util import show_image, get_frame, neighboring_points
+from sprite_util import show_image, get_frame, neighboring_points, sort_colors
 
-class PatchGraph:
+class FrameGraph:
     @staticmethod
     def from_raw_frame(game, play_number, frame_number, bg_color=None, indirect=True):
-        return PatchGraph(get_frame(game, play_number, frame_number), bg_color=bg_color, indirect=indirect)
+        return FrameGraph(get_frame(game, play_number, frame_number), bg_color=bg_color, indirect=indirect)
 
-    def __init__(self, frame, game='SuperMarioBros-Nes', bg_color=None, indirect=True):
+    def __init__(self, frame=None, game='SuperMarioBros-Nes', bg_color=None, indirect=True, graph=None, subgraph=None):
+        if frame is not None:
+            self._init_frame(frame, bg_color, indirect)
+            self._init_graph()
+        elif subgraph is not None and graph is not None:
+            self._from_subgraph(graph, subgraph)
+
+    def _init_frame(self, frame, bg_color, indirect):
         # Frame init
         self.raw_frame = frame
         self.indirect = indirect
@@ -32,6 +40,7 @@ class PatchGraph:
         self.pix_index = {}
         self.index_patches()
 
+    def _init_graph(self):
         # graph init
         start = time()
         self.hash_to_patch = {hash(i):i for i in self.patches}
@@ -68,8 +77,8 @@ class PatchGraph:
 
         for i in self.patches:
             if (i.bounding_box[0][0] == 0 or i.bounding_box[0][1] == 0
-                or i.bounding_box[1][0] == frame.shape[0]
-                or i.bounding_box[1][1] == frame.shape[1]):
+                or i.bounding_box[1][0] == self.raw_frame.shape[0]
+                or i.bounding_box[1][1] == self.raw_frame.shape[1]):
                 i.mark_as_frame_edge()
 
             for x, y in i.get_neighboring_patch_pixels(self.raw_frame):
@@ -77,15 +86,8 @@ class PatchGraph:
                     i.mark_as_bg_edge()
                     break
 
-        temp = self.raw_frame.copy()
-        for i in self.patches:
-            if i.bg_edge is True and i.frame_edge is True:
-                temp = i.fill_patch(temp, color=(255, 0, 255))
-            elif i.bg_edge is True:
-                temp = i.fill_patch(temp, color=(255, 0, 0))
-            elif i.frame_edge is True:
-                temp = i.fill_patch(temp, color=(0, 0, 255))
-        show_image(temp, scale=2)
+        self._subgraphs = [PatchGraph(self, sg) for sg in self._isolate_offset_subgraphs()]
+
     def parse_frame(self):
         frame = self.raw_frame
         mask = np.ones(frame.shape[:-1])
@@ -112,7 +114,7 @@ class PatchGraph:
                     self.bounding_boxes.append(node.bounding_box)
                     patch_colors.append(tuple(frame[i][j]))
 
-        self.palette = tuple(palette.keys())
+        self.palette = sort_colors([(int(i[0]), int(i[1]), int(i[2])) for i in palette.keys()])
         self.patch_colors = [self.color_as_palette(i) for i in patch_colors]
 
     def build_graph(self):
@@ -142,7 +144,7 @@ class PatchGraph:
         adj_nodes = np.flatnonzero(adj_mat[primary_index])
         return [self.frame.patches[i] for i in adj_nodes]
 
-    def isolate_offset_subgraphs(self):
+    def _isolate_offset_subgraphs(self):
         adj = np.nonzero(self.offset_adjacency_matrix)
         adj_coords = {i[0]:[j[1] for j in i[1]] for i in itertools.groupby(zip(adj[0], adj[1]), key=lambda x: x[0])}
         subgraphs = [[self.offset_hash_to_patch[self.index_to_offset_hash[i]]] for i in range(len(self.offset_hashes)) if i not in adj_coords]
@@ -172,7 +174,10 @@ class PatchGraph:
             subgraphs.append(connected)
             o_subgraphs.append(ohs)
 
-        return (subgraphs, o_subgraphs)
+        return subgraphs
+
+    def subgraphs(self):
+        return self._subgraphs
 
     def subgraph_area(self, subgraph):
         return sum(map(lambda p: p.area(), subgraph))
@@ -217,22 +222,78 @@ class PatchGraph:
         print(adm_str)
         print()
 
-    def fill_subgraph(self, subgraph, frame=None):
-        if frame is None:
-            frame = self.frame.raw_frame.copy()
-        for i in subgraph:
-            frame = i.fill_patch(frame)
-
-        return frame
-
     def show(self, scale=None):
         show_image(self.raw_frame, scale=scale)
 
-    def show_subgraph(self, subgraph):
+
+class PatchGraph:
+    def __init__(self, graph, patches):
+        self.graph = graph
+        self.bg_color = graph.bg_color
+        self.subgraph = patches
+
+        self.bb = self._bounding_box()
+        self.palette = sort_colors(set([tuple(i.color) for i in self.subgraph]))
+        self.clipped_frame = graph.raw_frame[self.bb[0][0]:self.bb[1][0], self.bb[0][1]:self.bb[1][1],:]
+        self.hash_list = sorted([hash(i) for i in self.subgraph])
+        self.mask = self._mask()
+        self.palettized = self._palettize()
+
+    def color_as_palette(self, color):
+        return self.palette.index(tuple(color))
+
+    def _bounding_box(self):
         xs = []
         ys = []
         bbs = []
-        for i in subgraph:
+        for i in self.subgraph:
+            xs.append(i.bounding_box[0][0])
+            xs.append(i.bounding_box[1][0])
+            ys.append(i.bounding_box[0][1])
+            ys.append(i.bounding_box[1][1])
+            bbs.append(i.bounding_box)
+        return ((min(xs), min(ys)), (max(xs), max(ys)))
+
+    def _mask(self):
+        left_most = list(filter(lambda p: p.bounding_box[0][1] == self.bb[0][1], self.subgraph))
+        top_left_patch = list(sorted(left_most, key=lambda p: p.bounding_box[0][0]))[0]
+        tlpbb = top_left_patch.bounding_box
+        xt, yt = (tlpbb[0][0] - self.bb[0][0], tlpbb[0][1] - self.bb[0][1])
+
+        shape = self.bb[1][0] - self.bb[0][0], self.bb[1][1] - self.bb[0][1]
+        mask = np.zeros(shape, dtype=bool)
+
+        for x, y in top_left_patch.patch._patch.translate(xt, yt):
+            mask[x][y] = True
+
+        for i in self.subgraph:
+            ibb = i.bounding_box
+            xt, yt = (ibb[0][0] - self.bb[0][0], ibb[0][1] - self.bb[0][1])
+            for x, y in i.patch._patch.translate(xt, yt):
+                mask[x][y] = True
+        return mask
+
+    def _palettize(self):
+        temp = np.zeros(self.mask.shape, dtype='uint8')
+        for x, row in enumerate(temp):
+            for y, pixel in enumerate(row):
+                if self.mask[x][y]:
+                    temp[x][y] = self.color_as_palette(self.clipped_frame[x][y])
+        return temp
+
+    def _un_palettize(self, mask):
+        temp = np.zeros(self.clipped_frame.shape, dtype='uint8')
+        for x, row in enumerate(temp):
+            for y, pixel in enumerate(row):
+                if self.mask[x][y]:
+                    temp[x][y] = self.graph.palette[self.palettized[x][y]]
+        return temp
+
+    def show(self):
+        xs = []
+        ys = []
+        bbs = []
+        for i in self.subgraph:
             xs.append(i.bounding_box[0][0])
             xs.append(i.bounding_box[1][0])
             ys.append(i.bounding_box[0][1])
@@ -240,7 +301,7 @@ class PatchGraph:
             bbs.append(i.bounding_box)
         bb = ((min(xs), min(ys)), (max(xs), max(ys)))
 
-        left_most = list(filter(lambda p: p.bounding_box[0][1] == bb[0][1], subgraph))
+        left_most = list(filter(lambda p: p.bounding_box[0][1] == bb[0][1], self.subgraph))
         top_left_patch = list(sorted(left_most, key=lambda p: p.bounding_box[0][0]))[0]
         tlpbb = top_left_patch.bounding_box
         xt, yt = (tlpbb[0][0] - bb[0][0], tlpbb[0][1] - bb[0][1])
@@ -251,10 +312,31 @@ class PatchGraph:
         for x, y in top_left_patch.patch._patch.translate(xt, yt):
             frame[x][y] = top_left_patch.color
 
-        for i in subgraph:
+        for i in self.subgraph:
             ibb = i.bounding_box
             xt, yt = (ibb[0][0] - bb[0][0], ibb[0][1] - bb[0][1])
             for x, y in i.patch._patch.translate(xt, yt):
                 frame[x][y] = i.color
 
-        show_image(frame, scale=3)
+        return show_image(frame, scale=3)
+
+    def fill(self, frame=None):
+        if frame is None:
+            frame = self.frame.raw_frame.copy()
+        for i in self.subgraph:
+            frame = i.fill_patch(frame)
+        return frame
+
+    def ask_if_sprite(self, bg_color=None):
+        print('> is this subgraph a sprite [y/N]?')
+        # Create a new sprite if yes
+        return self.show(), Sprite(self)
+
+    def __eq__(self, other):
+        return self.hash_list == other.hash_list
+
+
+class Sprite:
+    def __init__(self, patch_graph, palette=None):
+        pass
+
