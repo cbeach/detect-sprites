@@ -153,5 +153,8 @@ docs/_build/
 output/
 *.png
 src/sprite_locations.json
-src/db
+src/db/SuperMarioBros-Nes
+src/db/*.gz
+src/db/sqlite.db
+.ipynb_checkpoints
 *.pyprof

@@ -1,7 +1,16 @@
-# Serialize and store
+# EOD
 
-  * Use sqlalchemy to store frame graphs
-    * Construct Schema
+    I'm working on serializing the sub-patches. The required code is being added to 
+    Mask.process_bind_param and Mask.process_result_value in db/data_types.py.
+    After that I need to work my way up the data structures, serializing as I go.
+
+# Serialize and store
+## Use sqlalchemy to store frame graphs
+
+  [x] Construct Schema - Done
+  [.] Store \_patch objects in the db
+    [.] [De]Serialize the mask data
+        * Code is in db.data_types.Mask
 
 
 # Sprite isolation strategies

@@ -7,6 +7,7 @@ import sys
 import cv2
 import numpy as np
 from sprite_util import neighboring_points
+from db.models import NodeM, PatchM
 
 
 class Node:
@@ -101,85 +102,11 @@ class Node:
 
 class Patch:
     __PATCHES = {}
-    class _sub_patch:
-        def __init__(self, frame, x_seed, y_seed, mask=None, indirect=True):
-            self.indirect_neighbors = indirect
-            self.coord_list, self._bb = self._get_coord_list(frame, mask, x_seed, y_seed)
-            self._patch = self._coord_list_to_array()
-            self.my_hash = None
-            self.my_hash = hash(self)
+    def __init__(self, frame, x_seed, y_seed, mask=None, indirect=True, ds=None):
+        # Pull the patches out of the db
+        if len(Patch.__Patches) == 0 and ds is not None:
+            ds.session
 
-        def _get_coord_list(self, frame, mask, x, y):
-            if mask is None:
-                mask = np.ones(frame.shape[:-1])
-
-            stack = [(x, y)]
-            mask[x][y] = 0
-            patch = []
-            while len(stack) > 0:
-                current_pixel = stack.pop()
-                patch.append(current_pixel)
-                nbr_coords = neighboring_points(current_pixel[0], current_pixel[1], frame, self.indirect_neighbors)
-
-                for i, j in nbr_coords:
-                    if mask[i][j] == 1 and np.array_equal(frame[i][j], frame[x][y]):
-                        stack.append((i, j))
-                        mask[i][j] = 0
-
-            # bounding_box
-            x = [i[0] for i in patch]
-            y = [i[1] for i in patch]
-            bb = ((min(x), min(y)), (max(x) + 1, max(y) + 1))
-
-            # normalize
-            norm_patch = [(i[0] - bb[0][0], i[1] - bb[0][1]) for i in patch]
-
-            return norm_patch, bb
-
-        def _coord_list_to_array(self):
-            x = [i[0] for i in self.coord_list]
-            y = [i[1] for i in self.coord_list]
-            bb = ((min(x), min(y)), (max(x) + 1, max(y) + 1))
-
-            size = (bb[1][0] - bb[0][0],  bb[1][1] - bb[0][1])
-            min_x = bb[0][0]
-            min_y = bb[0][1]
-
-            p_arr = np.zeros(size)
-            for x, y in self.coord_list:
-                p_arr[x - min_x][y - min_y] = 1
-            return p_arr
-
-        def shape(self):
-            return tuple(self._patch.shape)
-
-        def area(self):
-            return len(self.coord_list)
-
-        def translate(self, x, y):
-            return [(i[0] + x, i[1] + y) for i in self.coord_list]
-
-        def __hash__(self):
-            if self.my_hash is not None:
-                return self.my_hash
-
-            patch_hash = 1
-            for i, pix in enumerate(self._patch.flatten()):
-                patch_hash = patch_hash << 1
-                if pix:
-                    patch_hash += 1
-
-            x, y = bytes(self._patch.shape)
-            shaped_hash = patch_hash
-            shifted_x = shaped_hash << 8
-            or_x = shifted_x | x
-            shifted_y = or_x << 8
-            with_shape = shifted_y | y
-
-            self.my_hash = with_shape
-            return with_shape
-
-    def __init__(self, frame, x_seed, y_seed, mask=None, indirect=True):
         temp_patch = Patch._sub_patch(frame, x_seed, y_seed, mask, indirect)
         self._bb = temp_patch._bb
 
@@ -211,3 +138,87 @@ class Patch:
     #    Patch.__PATCHES = data['__PATCHES']
     #    self._patch = data['_patch']
     #    self._bb = data['_bb']
+
+class _patch:
+    def __init__(self, frame, x_seed, y_seed, mask=None, indirect=True, model=None):
+        if model is None:
+            self.indirect_neighbors = indirect
+            self.coord_list, self._bb = self._get_coord_list(frame, mask, x_seed, y_seed)
+            self._patch = self._coord_list_to_array()
+            self.my_hash = None
+            self.my_hash = hash(self)
+        else:
+            self._from_model(model)
+
+    def _from_model(self, model):
+
+
+    def _get_coord_list(self, frame, mask, x, y):
+        if mask is None:
+            mask = np.ones(frame.shape[:-1])
+
+        stack = [(x, y)]
+        mask[x][y] = 0
+        patch = []
+        while len(stack) > 0:
+            current_pixel = stack.pop()
+            patch.append(current_pixel)
+            nbr_coords = neighboring_points(current_pixel[0], current_pixel[1], frame, self.indirect_neighbors)
+
+            for i, j in nbr_coords:
+                if mask[i][j] == 1 and np.array_equal(frame[i][j], frame[x][y]):
+                    stack.append((i, j))
+                    mask[i][j] = 0
+
+        # bounding_box
+        x = [i[0] for i in patch]
+        y = [i[1] for i in patch]
+        bb = ((min(x), min(y)), (max(x) + 1, max(y) + 1))
+
+        # normalize
+        norm_patch = [(i[0] - bb[0][0], i[1] - bb[0][1]) for i in patch]
+
+        return norm_patch, bb
+
+    def _coord_list_to_array(self):
+        x = [i[0] for i in self.coord_list]
+        y = [i[1] for i in self.coord_list]
+        bb = ((min(x), min(y)), (max(x) + 1, max(y) + 1))
+
+        size = (bb[1][0] - bb[0][0],  bb[1][1] - bb[0][1])
+        min_x = bb[0][0]
+        min_y = bb[0][1]
+
+        p_arr = np.zeros(size)
+        for x, y in self.coord_list:
+            p_arr[x - min_x][y - min_y] = 1
+        return p_arr
+
+    def shape(self):
+        return tuple(self._patch.shape)
+
+    def area(self):
+        return len(self.coord_list)
+
+    def translate(self, x, y):
+        return [(i[0] + x, i[1] + y) for i in self.coord_list]
+
+    def __hash__(self):
+        if self.my_hash is not None:
+            return self.my_hash
+
+        patch_hash = 1
+        for i, pix in enumerate(self._patch.flatten()):
+            patch_hash = patch_hash << 1
+            if pix:
+                patch_hash += 1
+
+        x, y = bytes(self._patch.shape)
+        shaped_hash = patch_hash
+        shifted_x = shaped_hash << 8
+        or_x = shifted_x | x
+        shifted_y = or_x << 8
+        with_shape = shifted_y | y
+
+        self.my_hash = with_shape
+        return with_shape
