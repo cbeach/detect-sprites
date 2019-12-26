@@ -15,11 +15,12 @@ class DataStore:
         if file_path is None:
             self.engine = create_engine('sqlite:///:memory:', echo=echo)
         else:
-            self.engine = create_engine(f'sqlite://{file_path}', echo=echo)
-        self.SessionFactory = sessionmaker(bind=self.engine)
-        self.session = self.SessionFactory()
+            self.engine = create_engine(f'sqlite:///{file_path}', echo=echo)
 
-    def initialize_db(self, games_path):
+        self.SessionFactory = sessionmaker(bind=self.engine)
+        self._session = self.Session()
+
+    def initialize(self, games_path):
         Base.metadata.create_all(self.engine)
 
         with open(games_path, 'r') as fp:
@@ -28,8 +29,11 @@ class DataStore:
         game_list = []
         game_list = sorted([*games['NES'], *games['SNES']])
         for i, g in enumerate(game_list):
-            self.session.add(GameM(id=i, name=g, platform=g.split('-')[-1].upper()))
-        self.session.flush()
+            self._session.add(GameM(id=i, name=g, platform=g.split('-')[-1].upper()))
+        self._session.commit()
 
     def query(self, *args, **kwargs):
-        return self.session.query(*args, **kwargs)
+        return self._session.query(*args, **kwargs)
+
+    def Session(self):
+        return self.SessionFactory()

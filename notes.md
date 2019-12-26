@@ -1,8 +1,8 @@
 # EOD
 
-    I'm working on serializing the sub-patches. The required code is being added to 
-    Mask.process_bind_param and Mask.process_result_value in db/data_types.py.
-    After that I need to work my way up the data structures, serializing as I go.
+    I'm working on serializing the sub-patches. The prototype code is in main. I'm currently 
+    working on cases in which the size of the array is less than 8. As of now then deserialization
+    function is returning an array with length 8 for the test array which is length 6
 
 # Serialize and store
 ## Use sqlalchemy to store frame graphs

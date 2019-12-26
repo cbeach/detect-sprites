@@ -14,13 +14,13 @@ Base = declarative_base()
 class PatchM(Base):
     __tablename__ = 'patches'
 
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, autoincrement=True, primary_key=True)
     mask = Column(Mask)
     shape = Column(Shape)
-    direct = Column(Boolean)
+    indirect = Column(Boolean)
 
     def __repr__(self):
-        return f"<Patch(id='{self.id}', mask='{self.mask}', shape='{[int(i) for i in self.shape]}', direct='{self.direct}')>"
+        return f"<Patch(id='{self.id}', mask='{self.mask}', shape='{[int(i) for i in self.shape]}', indirect='{self.indirect}')>"
 
 class NodeM(Base):
     __tablename__ = 'nodes'

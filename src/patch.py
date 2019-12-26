@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 from sprite_util import neighboring_points
 from db.models import NodeM, PatchM
+from db.data_store import DataStore
 
 
 class Node:
@@ -101,19 +102,26 @@ class Node:
 
 
 class Patch:
-    __PATCHES = {}
+    _PATCHES = {}
     def __init__(self, frame, x_seed, y_seed, mask=None, indirect=True, ds=None):
+        self.ds = ds = DataStore('temp.db')
         # Pull the patches out of the db
-        if len(Patch.__Patches) == 0 and ds is not None:
-            ds.session
+        if len(Patch._PATCHES) == 0 and ds is not None:
+            #ds.initialize('./games.json')
+            db_sess = ds.Session()
+            db_sess.commit()
+            if db_sess.query(PatchM).count() > 0:
+                # Load patches from db
+                self._load_all()
 
-        temp_patch = Patch._sub_patch(frame, x_seed, y_seed, mask, indirect)
+        self.indirect = indirect
+        temp_patch = _patch(frame, x_seed, y_seed, mask, indirect)
         self._bb = temp_patch._bb
 
-        if Patch.__PATCHES.get(hash(temp_patch), None) is None:
-            self._patch = Patch.__PATCHES[hash(temp_patch)] = temp_patch
+        if Patch._PATCHES.get(hash(temp_patch), None) is None:
+            self._patch = Patch._PATCHES[hash(temp_patch)] = temp_patch
         else:
-            self._patch = Patch.__PATCHES[hash(temp_patch)]
+            self._patch = Patch._PATCHES[hash(temp_patch)]
 
     def shape(self):
         return self._patch.shape()
@@ -127,35 +135,44 @@ class Patch:
     def __hash__(self):
         return hash(self._patch)
 
-    #def __getstate__(self):
-    #    return {
-    #        '__PATCHES': Patch.__PATCHES,
-    #        '_patch': self._patch,
-    #        '_bb': self._bb,
-    #    }
+    def store(self):
+        sess = self.ds.Session()
+        for i in self._PATCHES.values():
+            sess.add(PatchM(shape=i._patch.shape, indirect=i.indirect_neighbors, mask=i._patch))
+            sess.commit()
+        # TODO: Store self (NodeM)
 
-    #def __setstate__(self, data):
-    #    Patch.__PATCHES = data['__PATCHES']
-    #    self._patch = data['_patch']
-    #    self._bb = data['_bb']
+    def _load_all(self):
+        sess = self.ds.Session()
+        for i in sess.query(PatchM).all():
+            p = _patch(model=i)
+            self._PATCHES[hash(p)] = p
 
 class _patch:
-    def __init__(self, frame, x_seed, y_seed, mask=None, indirect=True, model=None):
+    def __init__(self, frame=None, x_seed=None, y_seed=None, mask=None, indirect=True, model=None):
         if model is None:
             self.indirect_neighbors = indirect
             self.coord_list, self._bb = self._get_coord_list(frame, mask, x_seed, y_seed)
             self._patch = self._coord_list_to_array()
-            self.my_hash = None
-            self.my_hash = hash(self)
         else:
             self._from_model(model)
 
-    def _from_model(self, model):
+        self.my_hash = None
+        self.my_hash = hash(self)
 
+    def _from_model(self, model):
+        self.indirect_neighbors = model.indirect
+        self.coord_list = []
+        for x, row in enumerate(model.mask):
+            for y, p in enumerate(row):
+                if p == True:
+                    self.coord_list.append((x, y))
+        print(self.coord_list)
+        self._patch = self._coord_list_to_array()
 
     def _get_coord_list(self, frame, mask, x, y):
         if mask is None:
-            mask = np.ones(frame.shape[:-1])
+            mask = np.zeros(frame.shape[:-1])
 
         stack = [(x, y)]
         mask[x][y] = 0
@@ -166,9 +183,9 @@ class _patch:
             nbr_coords = neighboring_points(current_pixel[0], current_pixel[1], frame, self.indirect_neighbors)
 
             for i, j in nbr_coords:
-                if mask[i][j] == 1 and np.array_equal(frame[i][j], frame[x][y]):
+                if mask[i][j] == False and np.array_equal(frame[i][j], frame[x][y]):
                     stack.append((i, j))
-                    mask[i][j] = 0
+                    mask[i][j] = True
 
         # bounding_box
         x = [i[0] for i in patch]
@@ -189,7 +206,7 @@ class _patch:
         min_x = bb[0][0]
         min_y = bb[0][1]
 
-        p_arr = np.zeros(size)
+        p_arr = np.zeros(size, dtype=bool)
         for x, y in self.coord_list:
             p_arr[x - min_x][y - min_y] = 1
         return p_arr
@@ -222,3 +239,49 @@ class _patch:
 
         self.my_hash = with_shape
         return with_shape
+
+
+def main():
+    r = np.array([0, 0, 255], dtype=np.uint8)
+    g = np.array([0, 255, 0], dtype=np.uint8)
+    b = np.array([255, 0, 0], dtype=np.uint8)
+    c = np.array([255, 255, 0], dtype=np.uint8)
+    m = np.array([255, 0, 255], dtype=np.uint8)
+
+    w = np.array([255, 255, 255], dtype=np.uint8)
+    a = np.array([128, 128, 128], dtype=np.uint8)
+
+    ti1 = np.array([
+        [r, r, r, r, r, g, g, g, g, g],
+        [r, r, r, r, r, g, g, g, g, g],
+        [r, r, r, r, r, g, g, g, g, g],
+        [r, r, r, r, r, g, g, g, g, g],
+        [r, r, r, r, r, c, g, g, g, g],
+        [b, b, b, b, r, c, c, c, c, c],
+        [b, b, b, b, b, c, c, c, c, c],
+        [b, b, b, b, b, c, c, c, c, c],
+        [b, b, b, b, b, c, c, c, c, c],
+        [b, b, b, b, b, c, c, c, c, c],
+    ], dtype='uint8')
+
+
+    patches = {}
+    patches['r'] = Patch(ti1, 0, 0, mask=np.zeros(ti1.shape[:-1]))
+    patches['g'] = Patch(ti1, 0, 5, mask=np.zeros(ti1.shape[:-1]))
+    patches['b'] = Patch(ti1, 5, 0, mask=np.zeros(ti1.shape[:-1]))
+    patches['c'] = Patch(ti1, 5, 5, mask=np.zeros(ti1.shape[:-1]))
+    return patches
+
+if __name__ == '__main__':
+    r = np.array([0, 0, 255], dtype=np.uint8)
+    ti1 = np.array([
+        [r, r],
+        [r, r],
+    ], dtype='uint8')
+    #p = main()
+    p = Patch(ti1, 0, 0, mask=np.zeros(ti1.shape[:-1]))
+    sess = p.ds.Session()
+    for i in sess.query(PatchM).all():
+        print(i)
+    print(len(p._PATCHES), p._PATCHES)
+
