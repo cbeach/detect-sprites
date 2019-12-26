@@ -9,11 +9,17 @@ import numpy as np
 from sprite_util import neighboring_points
 from db.models import NodeM, PatchM
 from db.data_store import DataStore
+from db.data_types import BoundingBox, Color, FrameID, Mask, encode_frame_id
 
 
 class Node:
-    def __init__(self, frame, x_seed, y_seed, mask=None, indirect=True):
-        self.patch = Patch(frame, x_seed, y_seed, mask, indirect)
+    def __init__(self, frame, x_seed, y_seed, mask=None, indirect=True, ds=None):
+        if ds is not None:
+            self.ds = ds
+        else:
+            self.ds = ds = DataStore('temp.db', games_path='./games.json')
+
+        self.patch = Patch(frame, x_seed, y_seed, mask, indirect, ds=ds)
         self.color = frame[x_seed][y_seed]
         self._coord_list = None
         self.bounding_box = self.patch._bb
@@ -83,6 +89,32 @@ class Node:
         return ((other_bb[0][0] - self.bounding_box[0][0], other_bb[0][1] - self.bounding_box[0][1]),
                 (other_bb[1][0] - self.bounding_box[1][0], other_bb[1][1] - self.bounding_box[1][1]))
 
+    def store(self, backref, commit=False, ds=None, sess=None):
+        if ds is None:
+            ds = self.ds
+
+        if sess is None:
+            sess = ds.Session()
+
+        if sess.query(PatchM).filter(PatchM.id==hash(self.patch)).count() == 0:
+            self.patch.store()
+
+        pM = sess.query(PatchM).filter(PatchM.id==hash(self.patch)).first()
+        n = NodeM(
+            patch=pM.id,
+            color=self.color,
+            bb=self.bounding_box,
+            game_id=backref.game,
+            play_number=backref.play_number,
+            frame_number=backref.frame_number,
+        )
+        if commit is True:
+            sess.add(n)
+            sess.commit()
+
+        return n
+
+
     # Debugging --------------------
     def draw_bounding_box(self, frame):
         cp = frame.copy()
@@ -104,10 +136,13 @@ class Node:
 class Patch:
     _PATCHES = {}
     def __init__(self, frame, x_seed, y_seed, mask=None, indirect=True, ds=None):
-        self.ds = ds = DataStore('temp.db')
         # Pull the patches out of the db
+        if ds is not None:
+            self.ds = ds
+        else:
+            self.ds = ds = DataStore('temp.db', games_path='./games.json')
+
         if len(Patch._PATCHES) == 0 and ds is not None:
-            #ds.initialize('./games.json')
             db_sess = ds.Session()
             db_sess.commit()
             if db_sess.query(PatchM).count() > 0:
@@ -138,15 +173,15 @@ class Patch:
     def store(self):
         sess = self.ds.Session()
         for i in self._PATCHES.values():
-            sess.add(PatchM(shape=i._patch.shape, indirect=i.indirect_neighbors, mask=i._patch))
-            sess.commit()
-        # TODO: Store self (NodeM)
+            i.store(sess)
+        sess.commit()
 
     def _load_all(self):
         sess = self.ds.Session()
         for i in sess.query(PatchM).all():
             p = _patch(model=i)
             self._PATCHES[hash(p)] = p
+
 
 class _patch:
     def __init__(self, frame=None, x_seed=None, y_seed=None, mask=None, indirect=True, model=None):
@@ -167,7 +202,6 @@ class _patch:
             for y, p in enumerate(row):
                 if p == True:
                     self.coord_list.append((x, y))
-        print(self.coord_list)
         self._patch = self._coord_list_to_array()
 
     def _get_coord_list(self, frame, mask, x, y):
@@ -240,6 +274,10 @@ class _patch:
         self.my_hash = with_shape
         return with_shape
 
+    def store(self, sess):
+        if sess.query(PatchM.id).filter(PatchM.id==hash(self)).scalar() is None:
+            sess.add(PatchM(id=hash(self), shape=self._patch.shape, indirect=self.indirect_neighbors, mask=self._patch))
+
 
 def main():
     r = np.array([0, 0, 255], dtype=np.uint8)
@@ -273,13 +311,15 @@ def main():
     return patches
 
 if __name__ == '__main__':
+    ds = DataStore('temp.db', games_path='./games.json')
     r = np.array([0, 0, 255], dtype=np.uint8)
     ti1 = np.array([
         [r, r],
         [r, r],
     ], dtype='uint8')
-    #p = main()
+    j = main()
     p = Patch(ti1, 0, 0, mask=np.zeros(ti1.shape[:-1]))
+    p.store()
     sess = p.ds.Session()
     for i in sess.query(PatchM).all():
         print(i)

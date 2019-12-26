@@ -7,11 +7,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from sqlalchemy.sql import select
-from db.models import Base, FrameGraphM, GameM, NodeM, PatchM, PatchGraphM
+from db.models import Base, FrameGraphM, GameM, NodeM, PatchM#, PatchGraphM
 from db.data_types import BoundingBox, Shape
 
 class DataStore:
-    def __init__(self, file_path=None, echo=True):
+    def __init__(self, file_path=None, echo=True, games_path=None):
         if file_path is None:
             self.engine = create_engine('sqlite:///:memory:', echo=echo)
         else:
@@ -19,9 +19,11 @@ class DataStore:
 
         self.SessionFactory = sessionmaker(bind=self.engine)
         self._session = self.Session()
+        if len(sqlalchemy.inspect(self.engine).get_table_names()) == 0:
+            self.initialize(games_path)
 
     def initialize(self, games_path):
-        Base.metadata.create_all(self.engine)
+        Base.metadata.create_all(self.engine, checkfirst=True)
 
         with open(games_path, 'r') as fp:
             games = json.load(fp)
@@ -30,6 +32,7 @@ class DataStore:
         game_list = sorted([*games['NES'], *games['SNES']])
         for i, g in enumerate(game_list):
             self._session.add(GameM(id=i, name=g, platform=g.split('-')[-1].upper()))
+
         self._session.commit()
 
     def query(self, *args, **kwargs):

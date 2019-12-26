@@ -15,6 +15,28 @@ def byte_to_list(b):
         raise ValueError('byte must be in range(0, 256)')
     return [bool(ord(i) - 48) for i in '{:0>8b}'.format(b)]
 
+def int32_to_bytes(i):
+    f, t, s, fi = 0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff
+    return bytearray([(i & f) >> 24, (i & t) >> 16, (i & s) >> 8, (i & fi)])
+
+def bytes_to_int32(ba):
+    b = 0
+    b |= ba[0] << 24
+    b |= ba[1] << 16
+    b |= ba[2] << 8
+    b |= ba[3]
+    return b
+
+def encode_frame_id(game_id, play_num, frame_num):
+    ba = int32_to_bytes(game_id)
+    ba.extend(int32_to_bytes(play_num))
+    ba.extend(int32_to_bytes(frame_num))
+    return ba
+
+def decode_frame_id(data):
+    return (bytes_to_int32(data[:4]), bytes_to_int32(data[4:8]), bytes_to_int32(data[8:12]))
+
+
 class Shape(sqltypes.TypeDecorator):
     impl = sqltypes.LargeBinary
     def process_bind_param(self, values, dialect):
@@ -68,7 +90,8 @@ class Mask(sqltypes.TypeDecorator):
         """
         f, t, s, fi = 0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff
         x, y = values.shape
-        ba = bytearray([(x & f) >> 24, (x & t) >> 16, (x & s) >> 8, (x & fi), (y & f) >> 24, (y & t) >> 16, (y & s) >> 8, (y & fi)])
+        ba = int32_to_bytes(x)
+        ba.extend(int32_to_bytes(y))
 
         counter = b = 0
         for i in values.flatten():
@@ -91,17 +114,9 @@ class Mask(sqltypes.TypeDecorator):
 
     def process_result_value(self, value, dialect):
         value = bytearray(value)
-        print(value)
-        x = y = 0
-        x |= value.pop(0) << 24
-        x |= value.pop(0) << 16
-        x |= value.pop(0) << 8
-        x |= value.pop(0)
-
-        y |= value.pop(0) << 24
-        y |= value.pop(0) << 16
-        y |= value.pop(0) << 8
-        y |= value.pop(0)
+        x = bytes_to_int32(value[:4])
+        y = bytes_to_int32(value[4:8])
+        value = value[8:]
 
         length = x * y
         if length < 8:
@@ -120,3 +135,23 @@ class Mask(sqltypes.TypeDecorator):
 
         arr = arr.reshape((x, y))
         return arr
+
+class FrameID(sqltypes.TypeDecorator):
+    """
+        bytearray that stores three integer ids.
+        first 4 bytes is the game id,
+        second 4 bytes is the play number,
+        third 4 bytes is the frame number
+    """
+    impl = sqltypes.LargeBinary
+    def __init__(self, *args, **kwargs):
+        super(FrameID, self).__init__(length=3)
+
+    def process_bind_param(self, values, dialect):
+        ba = int32_to_bytes(values[0])
+        ba.extend(int32_to_bytes(values[1]))
+        ba.extend(int32_to_bytes(values[2]))
+        return ba
+
+    def process_result_value(self, value, dialect):
+        return (bytes_to_int32(value[:4]), bytes_to_int32(value[4:8]), bytes_to_int32(value[8:12]))

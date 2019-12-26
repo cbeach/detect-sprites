@@ -10,13 +10,25 @@ import numpy as np
 
 from patch import Node
 from sprite_util import show_image, get_frame, neighboring_points, sort_colors
+from db.data_store import DataStore
+from db.models import FrameGraphM, GameM, NodeM, PatchM
 
 class FrameGraph:
     @staticmethod
-    def from_raw_frame(game, play_number, frame_number, bg_color=None, indirect=True):
-        return FrameGraph(get_frame(game, play_number, frame_number), bg_color=bg_color, indirect=indirect)
+    def from_raw_frame(game, play_number, frame_number, bg_color=None, indirect=True, ds=None):
+        return FrameGraph(get_frame(game, play_number, frame_number), game=game, play_num=play_number, frame_num=frame_number, bg_color=bg_color, indirect=indirect, ds=ds)
 
-    def __init__(self, frame=None, game='SuperMarioBros-Nes', bg_color=None, indirect=True, graph=None, subgraph=None):
+    def __init__(self, frame=None, game='SuperMarioBros-Nes', bg_color=None, indirect=True, graph=None, subgraph=None, ds=None, play_num=0, frame_num=0):
+        if ds is not None:
+            self.ds = ds
+        else:
+            self.ds = ds = DataStore(games_path='./games.json')
+
+        sess = ds.Session()
+        self.game_id = sess.query(GameM).filter(GameM.name==game).one().id
+        self.play_num = play_num
+        self.frame_num = frame_num
+
         if frame is not None:
             self._init_frame(frame, bg_color, indirect)
             self._init_graph()
@@ -90,7 +102,7 @@ class FrameGraph:
 
     def parse_frame(self):
         frame = self.raw_frame
-        mask = np.ones(frame.shape[:-1])
+        mask = np.zeros(frame.shape[:-1])
         size = frame.shape[0] * frame.shape[1]
         self.patches = []
         self.bounding_boxes = []
@@ -101,14 +113,14 @@ class FrameGraph:
         for i, row in enumerate(mask):
             for j, pix in enumerate(row):
                 palette[tuple(frame[i][j])] = True
-                if pix == 1:
-                    mask[i][j] = 0
+                if pix == False:
+                    mask[i][j] = True
                     if self.is_background(i, j):
                         continue
                     node = Node(frame, i, j, mask=mask, indirect=self.indirect)
 
                     for x, y in node.coord_list():
-                        mask[x][y] = 0
+                        mask[x][y] = True
 
                     self.patches.append(node)
                     self.bounding_boxes.append(node.bounding_box)
@@ -205,6 +217,17 @@ class FrameGraph:
     def is_background(self, x, y):
         return np.array_equal(self.bg_color, self.raw_frame[x][y]) is True
 
+    def store(self, ds=None):
+        if ds is None:
+            ds = self.ds
+
+        sess = ds.Session()
+
+        fg = FrameGraphM(game=self.game_id, play_number=self.play_num, frame_number=self.frame_num)
+        for node in self.patches:
+            fg.nodes.append(node.store(fg, commit=False, ds=ds, sess=sess))
+        sess.add(fg)
+        sess.commit()
     # --- Debugging ---
     def print_adjacency_matrix(self):
         print()
@@ -226,8 +249,14 @@ class FrameGraph:
         show_image(self.raw_frame, scale=scale)
 
 
+
 class PatchGraph:
-    def __init__(self, graph, patches):
+    def __init__(self, graph, patches, ds=None):
+        if ds is not None:
+            self.ds = ds
+        else:
+            self.ds = ds = DataStore(games_path='./games.json')
+
         self.graph = graph
         self.bg_color = graph.bg_color
         self.subgraph = patches

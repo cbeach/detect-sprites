@@ -158,3 +158,4 @@ src/db/*.gz
 src/db/sqlite.db
 .ipynb_checkpoints
 *.pyprof
+temp.*
