@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from sqlalchemy.sql import select
-from db.models import Base, FrameGraphM, GameM, NodeM, PatchM#, PatchGraphM
+from db.models import Base, GameM, NodeM, PatchM#, PatchGraphM, FrameGraphM
 from db.data_types import BoundingBox, Shape
 
 class DataStore:
@@ -19,13 +19,15 @@ class DataStore:
 
         self.SessionFactory = sessionmaker(bind=self.engine)
         self._session = self.Session()
-        if len(sqlalchemy.inspect(self.engine).get_table_names()) == 0:
-            self.initialize(games_path)
+        self.games_path = games_path
+        #if len(sqlalchemy.inspect(self.engine).get_table_names()) == 0:
+        #    self.initialize(games_path)
 
-    def initialize(self, games_path):
+    def initialize(self):
+        print('initializing database')
         Base.metadata.create_all(self.engine, checkfirst=True)
 
-        with open(games_path, 'r') as fp:
+        with open(self.games_path, 'r') as fp:
             games = json.load(fp)
 
         game_list = []

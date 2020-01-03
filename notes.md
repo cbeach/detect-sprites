@@ -1,8 +1,7 @@
 # EOD
 
-    I'm working on serializing the sub-patches. The prototype code is in main. I'm currently 
-    working on cases in which the size of the array is less than 8. As of now then deserialization
-    function is returning an array with length 8 for the test array which is length 6
+    I need to figure out how to proceed. Do I really need the adjacency matrices in the database?
+    Can I reconstruct them later?
 
 # Serialize and store
 ## Use sqlalchemy to store frame graphs

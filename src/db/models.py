@@ -29,14 +29,25 @@ class NodeM(Base):
     patch = Column(None, ForeignKey('patches.id'))
     color = Column(Color)
     bb = Column(BoundingBox)
-    game_id = Column(None, ForeignKey('frame_graphs.game'))
-    play_number = Column(None, ForeignKey('frame_graphs.play_number'))
-    frame_number = Column(None, ForeignKey('frame_graphs.frame_number'))
-    frame_edge = Column(Boolean)
+    game_id = Column(Integer)
+    play_number = Column(Integer)
+    frame_number = Column(Integer)
+    edge_of_frame = Column(Boolean)
     bg_edge = Column(Boolean)
 
     def __repr__(self):
        return f"<Node(id='{self.id}', patch='{self.patch}', color='{self.color}', bounding_box={self.bb}, graph_id={[self.game_id, self.play_number, self.frame_number]})>"
+
+class EdgeM(Base):
+    __tablename__ = 'edges'
+    global_id = Column(Integer, autoincrement=True, primary_key=True)
+    left_id = Column(Integer, ForeignKey('nodes.id'), index=True)
+    right_id = Column(Integer, ForeignKey('nodes.id'), index=True)
+    x_offset = Column(Integer)
+    y_offset = Column(Integer)
+
+    def __repr__(self):
+       return f"<Edge(id='({self.left_id}, {self.right_id}', offset='({self.x_offset}, {self.y_offset})')>"
 
 class GameM(Base):
     __tablename__ = 'games'
@@ -55,14 +66,14 @@ class GameM(Base):
 #    nodes = relationship('NodeM')
 #    frame_graph = Column(None, ForeignKey('frame_graphs.id'))
 
-class FrameGraphM(Base):
-    __tablename__ = 'frame_graphs'
-
-    game = Column(None, ForeignKey('games.id'))#, primary_key=True)
-    play_number = Column(Integer, primary_key=True)
-    frame_number = Column(Integer, primary_key=True)
-    nodes = relationship('NodeM', primaryjoin="and_(NodeM.game_id==FrameGraphM.game, and_(NodeM.play_number==FrameGraphM.play_number, NodeM.frame_number==FrameGraphM.frame_number))")
-
-    def __repr__(self):
-       return f"<FrameGraph(game='{self.game}', play_number='{self.play_number}', frame_number='{self.frame_number}', nodes={self.nodes})>"
+#class FrameGraphM(Base):
+#    __tablename__ = 'frame_graphs'
+#
+#    game = Column(None, ForeignKey('games.id'))#, primary_key=True)
+#    play_number = Column(Integer, primary_key=True)
+#    frame_number = Column(Integer, primary_key=True)
+#    nodes = relationship('NodeM', primaryjoin="and_(NodeM.game_id==FrameGraphM.game, and_(NodeM.play_number==FrameGraphM.play_number, NodeM.frame_number==FrameGraphM.frame_number))")
+#
+#    def __repr__(self):
+#       return f"<FrameGraph(game='{self.game}', play_number='{self.play_number}', frame_number='{self.frame_number}', nodes={self.nodes})>"
 

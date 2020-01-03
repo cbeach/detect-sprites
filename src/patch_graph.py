@@ -11,7 +11,7 @@ import numpy as np
 from patch import Node
 from sprite_util import show_image, get_frame, neighboring_points, sort_colors
 from db.data_store import DataStore
-from db.models import FrameGraphM, GameM, NodeM, PatchM
+from db.models import EdgeM, GameM, NodeM, PatchM #, FrameGraphM
 
 class FrameGraph:
     @staticmethod
@@ -19,13 +19,14 @@ class FrameGraph:
         return FrameGraph(get_frame(game, play_number, frame_number), game=game, play_num=play_number, frame_num=frame_number, bg_color=bg_color, indirect=indirect, ds=ds)
 
     def __init__(self, frame=None, game='SuperMarioBros-Nes', bg_color=None, indirect=True, graph=None, subgraph=None, ds=None, play_num=0, frame_num=0):
-        if ds is not None:
-            self.ds = ds
-        else:
-            self.ds = ds = DataStore(games_path='./games.json')
+        #if ds is not None:
+        #    self.ds = ds
+        #else:
+        #    self.ds = ds = DataStore(games_path='./games.json')
 
         sess = ds.Session()
-        self.game_id = sess.query(GameM).filter(GameM.name==game).one().id
+        self.game = sess.query(GameM).filter(GameM.name==game).one()
+        self.game_id = self.game.id
         self.play_num = play_num
         self.frame_num = frame_num
 
@@ -217,17 +218,46 @@ class FrameGraph:
     def is_background(self, x, y):
         return np.array_equal(self.bg_color, self.raw_frame[x][y]) is True
 
+    def add_neighbors_to_nodes(self):
+        for i, patch in enumerate(self.patches):
+            phash = hash(patch)
+            ohash = patch.offset_hash()
+            sparse_nbrs = self.offset_adjacency_matrix[self.offset_hash_to_index[ohash]]
+            nbr_indices = np.nonzero(sparse_nbrs)
+            for j in nbr_indices[0]:
+                patch.neighbors.append(self.patches[j])
+
     def store(self, ds=None):
         if ds is None:
             ds = self.ds
 
         sess = ds.Session()
 
-        fg = FrameGraphM(game=self.game_id, play_number=self.play_num, frame_number=self.frame_num)
-        for node in self.patches:
-            fg.nodes.append(node.store(fg, commit=False, ds=ds, sess=sess))
-        sess.add(fg)
+        nodes = {node.offset_hash():(node, node.store(game=self.game, play_number=self.play_num, frame_number=self.frame_num, commit=False, ds=ds, sess=sess)) for node in self.patches}
+
+        for node, model in nodes.values():
+            sess.add(model)
         sess.commit()
+
+        # store edges
+        edges = []
+        for node, model in nodes.values():
+            bb1 = node.bounding_box
+            for nbr in node.neighbors:
+                bb2 = nbr.bounding_box
+                x_o = bb1[0][0] - bb2[0][0]
+                y_o = bb1[0][1] - bb2[0][1]
+                edges.append(EdgeM(left_id=model.id, right_id=nodes[nbr.offset_hash()][1].id, x_offset=x_o, y_offset=y_o))
+        sess.add_all(edges)
+        sess.commit()
+
+
+            #left_id = Column(Integer, ForeignKey('nodes.id'), primary_key=True)
+            #right_id = Column(Integer, ForeignKey('nodes.id'), primary_key=True)
+            #x_offset = Column(Integer)
+            #y_offset = Column(Integer)
+
+
     # --- Debugging ---
     def print_adjacency_matrix(self):
         print()

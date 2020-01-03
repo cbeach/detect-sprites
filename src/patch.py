@@ -7,17 +7,17 @@ import sys
 import cv2
 import numpy as np
 from sprite_util import neighboring_points
-from db.models import NodeM, PatchM
+from db.models import EdgeM, NodeM, PatchM
 from db.data_store import DataStore
 from db.data_types import BoundingBox, Color, FrameID, Mask, encode_frame_id
 
 
 class Node:
     def __init__(self, frame, x_seed, y_seed, mask=None, indirect=True, ds=None):
-        if ds is not None:
-            self.ds = ds
-        else:
-            self.ds = ds = DataStore('temp.db', games_path='./games.json')
+        #if ds is not None:
+        #    self.ds = ds
+        #else:
+        #    self.ds = ds = DataStore('temp.db', games_path='./games.json')
 
         self.patch = Patch(frame, x_seed, y_seed, mask, indirect, ds=ds)
         self.color = frame[x_seed][y_seed]
@@ -33,6 +33,7 @@ class Node:
 
         self.frame_edge = False
         self.bg_edge = False
+        self.neighbors = []
 
     def mark_as_frame_edge(self):
         self.frame_edge = True
@@ -89,7 +90,7 @@ class Node:
         return ((other_bb[0][0] - self.bounding_box[0][0], other_bb[0][1] - self.bounding_box[0][1]),
                 (other_bb[1][0] - self.bounding_box[1][0], other_bb[1][1] - self.bounding_box[1][1]))
 
-    def store(self, backref, commit=False, ds=None, sess=None):
+    def store(self, game, play_number, frame_number, commit=False, ds=None, sess=None):
         if ds is None:
             ds = self.ds
 
@@ -97,22 +98,23 @@ class Node:
             sess = ds.Session()
 
         if sess.query(PatchM).filter(PatchM.id==hash(self.patch)).count() == 0:
-            self.patch.store()
+            self.patch.store(ds)
 
         pM = sess.query(PatchM).filter(PatchM.id==hash(self.patch)).first()
-        n = NodeM(
+        node = NodeM(
             patch=pM.id,
             color=self.color,
             bb=self.bounding_box,
-            game_id=backref.game,
-            play_number=backref.play_number,
-            frame_number=backref.frame_number,
+            game_id=game.id,
+            play_number=play_number,
+            frame_number=frame_number,
         )
-        if commit is True:
-            sess.add(n)
-            sess.commit()
 
-        return n
+        if commit is True:
+            sess.add(node)
+            sess.commit()
+        else:
+            return node
 
 
     # Debugging --------------------
@@ -135,20 +137,22 @@ class Node:
 
 class Patch:
     _PATCHES = {}
-    def __init__(self, frame, x_seed, y_seed, mask=None, indirect=True, ds=None):
+    @staticmethod
+    def init_patch_db(ds=None):
         # Pull the patches out of the db
-        if ds is not None:
-            self.ds = ds
-        else:
-            self.ds = ds = DataStore('temp.db', games_path='./games.json')
+        if ds is None:
+            ds = ds = DataStore('temp.db', games_path='./games.json')
 
         if len(Patch._PATCHES) == 0 and ds is not None:
             db_sess = ds.Session()
             db_sess.commit()
             if db_sess.query(PatchM).count() > 0:
                 # Load patches from db
-                self._load_all()
+                for i in db_sess.query(PatchM).all():
+                    p = _patch(model=i)
+                    Patch._PATCHES[hash(p)] = p
 
+    def __init__(self, frame, x_seed, y_seed, mask=None, indirect=True, ds=None):
         self.indirect = indirect
         temp_patch = _patch(frame, x_seed, y_seed, mask, indirect)
         self._bb = temp_patch._bb
@@ -170,8 +174,8 @@ class Patch:
     def __hash__(self):
         return hash(self._patch)
 
-    def store(self):
-        sess = self.ds.Session()
+    def store(self, ds=None):
+        sess = ds.Session()
         for i in self._PATCHES.values():
             i.store(sess)
         sess.commit()
