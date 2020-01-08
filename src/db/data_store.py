@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from sqlalchemy.sql import select
-from db.models import Base, GameM, NodeM, PatchM#, PatchGraphM, FrameGraphM
+from db.models import Base, GameM, NodeM, PatchM#, GraphletM, FrameGraphM
 from db.data_types import BoundingBox, Shape
 
 class DataStore:

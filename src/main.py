@@ -51,49 +51,59 @@ def parse_and_store_play_through(play_number):
     play_through = get_playthrough(play_number=play_number)
     start_time = time.time()
 
-    for i, img in enumerate(play_through):
+    for i, img in enumerate(play_through[:10]):
         frame_start = time.time()
         print(f'frame {i}')
         parse_start = time.time()
-        #print(f'  indirect')
-        ifg = FrameGraph.from_raw_frame('SuperMarioBros-Nes', play_number=play_number, frame_number=i, indirect=True, ds=ds)
-        #print(f'  direct')
-        dfg = FrameGraph.from_raw_frame('SuperMarioBros-Nes', play_number=play_number, frame_number=i, indirect=False, ds=ds)
-        #print(f'  frame parsing: {time.time() - parse_start}')
+        print(f'  indirect')
+        ifg = FrameGraph(frame=img, game='SuperMarioBros-Nes', play_num=play_number, frame_num=i, indirect=True, ds=ds)
+        print(f'  direct')
+        dfg = FrameGraph(frame=img, game='SuperMarioBros-Nes', play_num=play_number, frame_num=i, indirect=False, ds=ds)
+        print(f'  frame parsing: {time.time() - parse_start}')
 
         linking_start = time.time()
-        #print(f'  linking nodes')
+        print(f'  linking nodes')
         try:
             ifg.add_neighbors_to_nodes()
             dfg.add_neighbors_to_nodes()
         except AttributeError:
             cprint(f'error processing playthrough number {play_number}, frame_number {i}')
-        #print(f'  linking: {time.time() - linking_start}')
+        print(f'  linking: {time.time() - linking_start}')
 
 
         store_start = time.time()
-        #print(f'  storing graphs')
+        print(f'  storing graphs')
         try:
             ifg.store(ds)
             dfg.store(ds)
         except AttributeError:
             show_image(img)
             cprint(f'error processing playthrough number {play_number}, frame_number {i}')
-        #print(f'  store: {time.time() - store_start}')
-        #print(f'elapsed time for frame {i}: {time.time() - frame_start}')
-        #print(f'total elapsed: {time.time() - start_time}')
-        #print('---------------------------------------------------\n')
+        print(f'  store: {time.time() - store_start}')
+        print(f'elapsed time for frame {i}: {time.time() - frame_start}')
+        print(f'total elapsed: {time.time() - start_time}')
+        print('---------------------------------------------------\n')
 
-    #print(f'number of patches: {len(Patch._PATCHES)}')
+    print(f'number of patches: {len(Patch._PATCHES)}')
     for i, p in enumerate(Patch._PATCHES.values()):
-        #print(f'storing patch {i}')
+        print(f'storing patch {i}')
         p.store(sess)
     sess.commit()
     cprint(f'finished processing playthrough {play_number}: \n  elapsed time: {time.time() - start_time}', 'green')
 
 
+def hash_neighborhoods(play_number):
+    ds = DataStore('db/sqlite.db', games_path='./games.json', echo=False)
+    #ds.initialize()
+    Patch.init_patch_db(ds)
+    sess = ds.Session()
+
+    ifg_33 = FrameGraph.from_raw_frame('SuperMarioBros-Nes', play_number=play_number, frame_number=33, indirect=True, ds=ds)
+    ifg_113 = FrameGraph.from_raw_frame('SuperMarioBros-Nes', play_number=play_number, frame_number=113, indirect=True, ds=ds)
+
+
 if __name__ == '__main__':
-    parse_and_store_play_through(1000)
+    hash_neighborhoods(1000)
 
     sys.exit(0)
 

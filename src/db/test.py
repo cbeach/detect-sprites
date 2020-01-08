@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
 from sqlalchemy.sql import select
-from .models import Base, FrameGraphM, GameM, NodeM, PatchM, PatchGraphM
+from .models import Base, FrameGraphM, GameM, NodeM, PatchM, GraphletM
 from .data_types import BoundingBox, Mask, Shape
 
 engine = create_engine('sqlite:///:memory:', echo=True)
@@ -51,10 +51,10 @@ s.add(n4)
 for row in s.query(NodeM).all():
     print('query: ', row)
 
-pg1 = PatchGraphM(nodes=[n1, n2])
-pg2 = PatchGraphM(nodes=[n3, n4])
+pg1 = GraphletM(nodes=[n1, n2])
+pg2 = GraphletM(nodes=[n3, n4])
 s.add(pg1, pg2)
-for row in s.query(PatchGraphM).all():
+for row in s.query(GraphletM).all():
     print('query: ', row)
 
 s.add(FrameGraphM(game=smb.id, play_number=1, frame_number=1, patch_graphs=[pg1]))

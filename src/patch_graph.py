@@ -99,7 +99,7 @@ class FrameGraph:
                     i.mark_as_bg_edge()
                     break
 
-        self._subgraphs = [PatchGraph(self, sg) for sg in self._isolate_offset_subgraphs()]
+        self._subgraphs = [Graphlet(self, sg) for sg in self._isolate_offset_subgraphs()]
 
     def parse_frame(self):
         frame = self.raw_frame
@@ -118,7 +118,7 @@ class FrameGraph:
                     mask[i][j] = True
                     if self.is_background(i, j):
                         continue
-                    node = Node(frame, i, j, mask=mask, indirect=self.indirect)
+                    node = Node(frame, i, j, self.play_num, self.frame_num, mask=mask, indirect=self.indirect)
 
                     for x, y in node.coord_list():
                         mask[x][y] = True
@@ -280,7 +280,7 @@ class FrameGraph:
 
 
 
-class PatchGraph:
+class Graphlet:
     def __init__(self, graph, patches, ds=None):
         if ds is not None:
             self.ds = ds

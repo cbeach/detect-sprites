@@ -3,14 +3,48 @@
     I need to figure out how to proceed. Do I really need the adjacency matrices in the database?
     Can I reconstruct them later?
 
+# Thoughts
+
+Start graphlet mining at nodes that aren't at a border (background or screen edge)
+
 # Serialize and store
 ## Use sqlalchemy to store frame graphs
 
   [x] Construct Schema - Done
-  [.] Store \_patch objects in the db
-    [.] [De]Serialize the mask data
+  [x] Store \_patch objects in the db
+    [x] [De]Serialize the mask data
         * Code is in db.data_types.Mask
+  [.] Design a data model that can be quickly reconstructed 
+      - Should be based on sub-graphs
+  [.] Switch to postgresql
 
+## Data Model
+### Patch
+  - Mask
+  - Shape
+
+### Node
+  - Patch (foreignkey(Patch))
+  - Color
+  - Top left corner
+
+### Edge
+  - Node (left, foreignkey(Node))
+  - Node (right, foreignkey(Node))
+  - x & y offset
+    * (x\_left - x\_right, y\_left - y\_right)
+
+### PatchGraph
+  - RootNode (foreignkey(Node))
+  - IsSprite (boolean)
+  - Palette (Do I want?)
+
+
+### Frame
+  - Game (foreighkey(game))
+  - Frame number (int)
+  - Play number (int)
+  - List of PatchGraphs (many-to-many or one-to-many?)
 
 # Sprite isolation strategies
 

@@ -59,7 +59,7 @@ class GameM(Base):
     def __repr__(self):
         return f'<Game(id={self.id}, name={self.name})>'
 
-#class PatchGraphM(Base):
+#class GraphletM(Base):
 #    __tablename__ = 'patch_graphs'
 #    id = Column(Integer, primary_key=True)
 #    #tlc = Column(Coord)

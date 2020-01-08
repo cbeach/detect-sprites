@@ -12,13 +12,34 @@ from db.data_store import DataStore
 from db.data_types import BoundingBox, Color, FrameID, Mask, encode_frame_id
 
 
+class NodeSingleton(type):
+    _instances = defaultdict(dict)
+    def __call__(cls, play_number, frame_number):
+        t = (play_number, frame_number)
+        if cls._instances.get(t, None) is None:
+            cls._instances[cls][t] = super(NodeSingleton, cls).__call__(play_number, frame_number)
+        return cls._instances[cls][t]
+
+
+class FrameEdge(metaclass=NodeSingleton):
+    def __init__(self, play_number, frame_number):
+        self.neighbors = []
+
+
+class Background(metaclass=NodeSingleton):
+    def __init__(self, play_number, frame_number):
+        self.neighbors = []
+
+
 class Node:
-    def __init__(self, frame, x_seed, y_seed, mask=None, indirect=True, ds=None):
+    def __init__(self, frame, x_seed, y_seed, play_number, frame_number, mask=None, indirect=True, ds=None):
         #if ds is not None:
         #    self.ds = ds
         #else:
         #    self.ds = ds = DataStore('temp.db', games_path='./games.json')
 
+        self.play_number = play_number
+        self.frame_number = frame_number
         self.patch = Patch(frame, x_seed, y_seed, mask, indirect, ds=ds)
         self.color = frame[x_seed][y_seed]
         self._coord_list = None
@@ -34,12 +55,15 @@ class Node:
         self.frame_edge = False
         self.bg_edge = False
         self.neighbors = []
+        self.my_neighborhood_hash = None
 
     def mark_as_frame_edge(self):
         self.frame_edge = True
+        self.neighbors.append(FrameEdge(self.play_number, self.frame_number))
 
     def mark_as_bg_edge(self):
         self.bg_edge = True
+        self.neighbors.append(Background(self.play_number, self.frame_number))
 
     def coord_list(self):
         if self._coord_list:
@@ -84,6 +108,19 @@ class Node:
 
         self.my_offset_hash = with_offset
         return with_offset
+
+    def neighborhood_hash(self):
+        if self.my_neighborhood_hash is not None:
+            return self.my_neighborhood_hash
+
+        initial_hash = hash(self)
+        for nbr in self.neighbors:
+            nbr_hash = hash(nbr)
+            shifted = initial_hash << (len(bin(nrb_hash)) - 2)
+            initial_hash = initial_hash | nbr_hash
+
+        self.my_neighborhood_hash = initial_hash
+        return self.my_neighborhood_hash
 
     def get_relative_offset(self, other_patch):
         other_bb = other_patch.bounding_box
