@@ -275,7 +275,7 @@ class FrameGraph:
         print(adm_str)
         print()
 
-    def show(self, scale=None):
+    def show(self, scale=1.0):
         show_image(self.raw_frame, scale=scale)
 
 

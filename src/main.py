@@ -12,7 +12,7 @@ import jsonpickle
 import numpy as np
 from termcolor import cprint
 
-from patch import Patch
+from patch import Patch, frame_edge_nodes, frame_edge_node, background_node, background_nodes
 from patch_graph import FrameGraph
 from sprite_util import show_image, get_image_list, get_playthrough, load_indexed_playthrough, sort_colors
 import db
@@ -98,8 +98,23 @@ def hash_neighborhoods(play_number):
     Patch.init_patch_db(ds)
     sess = ds.Session()
 
+
     ifg_33 = FrameGraph.from_raw_frame('SuperMarioBros-Nes', play_number=play_number, frame_number=33, indirect=True, ds=ds)
     ifg_113 = FrameGraph.from_raw_frame('SuperMarioBros-Nes', play_number=play_number, frame_number=113, indirect=True, ds=ds)
+    ifg_125 = FrameGraph.from_raw_frame('SuperMarioBros-Nes', play_number=play_number, frame_number=125, indirect=True, ds=ds)
+
+    #ifg_33.show()
+    #ifg_113.show()
+    #ifg_125.show()
+
+    for i, p in enumerate(ifg_33.patches):
+        print(f'{i}: {p.offset_hash()} {p.offset_hash_2()}')
+        print(f'{i}: {bin(p.offset_hash())}')
+        print(f'{i}: {bin(p.offset_hash_2())}')
+        print(f'{i}: {len(bin(p.offset_hash()))} {len(bin(p.offset_hash_2()))}')
+        assert(p.offset_hash() == p.offset_hash_2())
+    #print(f'fgs: {fg_33} {ifg_33.patches[0].frame_edge_node}')
+    #print(f'fg: {fg_33.neighbors} {ifg_33.patches[0].frame_edge_node.neighbors}')
 
 
 if __name__ == '__main__':

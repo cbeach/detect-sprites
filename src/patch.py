@@ -6,29 +6,22 @@ import sys
 
 import cv2
 import numpy as np
-from sprite_util import neighboring_points
+from sprite_util import neighboring_points, conjugate_numbers
 from db.models import EdgeM, NodeM, PatchM
 from db.data_store import DataStore
 from db.data_types import BoundingBox, Color, FrameID, Mask, encode_frame_id
 
+class FrameEdge:
+    pass
 
-class NodeSingleton(type):
-    _instances = defaultdict(dict)
-    def __call__(cls, play_number, frame_number):
-        t = (play_number, frame_number)
-        if cls._instances.get(t, None) is None:
-            cls._instances[cls][t] = super(NodeSingleton, cls).__call__(play_number, frame_number)
-        return cls._instances[cls][t]
+class Background:
+    pass
 
+frame_edge_node = FrameEdge()
+background_node = Background()
 
-class FrameEdge(metaclass=NodeSingleton):
-    def __init__(self, play_number, frame_number):
-        self.neighbors = []
-
-
-class Background(metaclass=NodeSingleton):
-    def __init__(self, play_number, frame_number):
-        self.neighbors = []
+frame_edge_nodes = defaultdict(list)
+background_nodes = defaultdict(list)
 
 
 class Node:
@@ -45,6 +38,10 @@ class Node:
         self._coord_list = None
         self.bounding_box = self.patch._bb
 
+        self.hash_memoization = {}
+        self.hash_memoization['offset'] = self._binary_offset()
+        self.hash_memoization['color'] = self._binary_color()
+
         self.my_offset_hash = None
         self.my_offset_hash = self.offset_hash()
 
@@ -59,11 +56,13 @@ class Node:
 
     def mark_as_frame_edge(self):
         self.frame_edge = True
-        self.neighbors.append(FrameEdge(self.play_number, self.frame_number))
+        self.neighbors.append(frame_edge_node)
+        frame_edge_nodes[(self.play_number, self.frame_number)].append(self)
 
     def mark_as_bg_edge(self):
         self.bg_edge = True
-        self.neighbors.append(Background(self.play_number, self.frame_number))
+        self.neighbors.append(background_node)
+        background_nodes[(self.play_number, self.frame_number)].append(self)
 
     def coord_list(self):
         if self._coord_list:
@@ -95,19 +94,55 @@ class Node:
     def __hash__(self):
         return hash(self.patch)
 
+    def _binary_offset(self):
+        if 'offset' in self.hash_memoization:
+            return self.hash_memoization['offset']
+
+        shifted_x = conjugate_numbers(self.bounding_box[0][0])
+        shifted_y = conjugate_numbers(self.bounding_box[0][1], seed=shifted_x)
+        self.hash_memoization['offset'] = shifted_y
+        return shifted_y
+
+    def _binary_color(self):
+        if 'color' in self.hash_memoization:
+            return self.hash_memoization['color']
+
+        r = conjugate_numbers(self.color[2])
+        rg = conjugate_numbers(self.color[1], seed=r)
+        rgb = conjugate_numbers(self.color[0], seed=rg)
+        self.hash_memoization['color'] = rgb
+        return rgb
+
     def offset_hash(self):
-        if self.my_offset_hash is not None:
-            return self.my_offset_hash
+        return self.master_hash(offset=True)
 
-        initial_hash = hash(self)
-        top_left_corner = self.bounding_box[0]
-        shifted_x = initial_hash << (len(bin(top_left_corner[0])) - 2)
-        or_x = shifted_x | top_left_corner[0]
-        shifted_y = or_x << (len(bin(top_left_corner[1])) - 2)
-        with_offset = shifted_y | top_left_corner[1]
+    def color_hash(self):
+        return self.master_hash(color=True)
 
-        self.my_offset_hash = with_offset
-        return with_offset
+    def color_offset_hash(self):
+        return self.master_hash(offset=True, color=True)
+
+    def master_hash(self, offset=False, color=False):
+        if offset is True and color is True:
+            if self.hash_memoization.get((True, True), None) is None:
+                self.memoized_hash[(True, True)] = conjugate_numbers(
+                    self._binary_color(),
+                    conjugate_numbers(self._binary_offset(), seed=hash(self))
+                )
+            else:
+                return self.memoized_hash[(True, True)]
+        elif offset is True and color is False:
+            if self.hash_memoization.get((True, False), None) is None:
+                return conjugate_numbers(self._binary_offset(), seed=hash(self))
+            else:
+                return self.memoized_hash[(True, False)]
+        elif offset is False and color is True:
+            if self.hash_memoization.get((False, True), None) is None:
+                return conjugate_numbers(self._binary_color(), seed=hash(self))
+            else:
+                return self.memoized_hash[(False, True)]
+        elif offset is False and color is False:
+            return hash(self)
 
     def neighborhood_hash(self):
         if self.my_neighborhood_hash is not None:

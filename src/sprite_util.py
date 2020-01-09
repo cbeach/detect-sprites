@@ -98,3 +98,6 @@ def sort_colors(color_list):
     """
     cl = sorted([f'{chr(b)}{chr(g)}{chr(r)}' for b, g, r in color_list])
     return [(ord(b), ord(g), ord(r)) for b, g, r in cl]
+
+def conjugate_numbers(num, seed=0):
+    return (seed << (len(bin(num))) - 2) | num
