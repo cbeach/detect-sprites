@@ -202,6 +202,9 @@ class Node:
 
         return self.master_hash(color=True, offset=True), e_hashes
 
+    def get_mask(self):
+        return self.patch.get_mask()
+
     # Debugging --------------------
     def draw_bounding_box(self, frame):
         cp = frame.copy()
@@ -270,6 +273,9 @@ class Patch:
         for i in sess.query(PatchM).all():
             p = _patch(model=i)
             self._PATCHES[hash(p)] = p
+
+    def get_mask(self):
+        return self._patch._patch
 
 
 class _patch:

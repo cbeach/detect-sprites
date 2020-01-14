@@ -2,6 +2,7 @@ from collections import defaultdict
 from glob import glob
 import gzip
 import itertools
+import json
 import os
 import pickle
 import random
@@ -108,3 +109,28 @@ def conjugate_numbers(num, seed=0, num_length=None):
         # TODO: Use log you dip
         num_length = len(bin(num)) - 2
     return (seed << num_length) | int(num)
+
+def patch_encoder(patch):
+    return patch.get_mask().astype('uint8').tolist()
+
+def node_encoder(node, palette=None):
+    if palette is None:
+        color = node.color.tolist()
+    else:
+        color = palette.index(tuple(node.color))
+
+    return [
+        node.bounding_box[0],
+        color,
+        patch_encoder(node.patch),
+    ]
+
+def graph_encoder(frame):
+    palette = frame.palette
+    am = frame.offset_adjacency_matrix
+    return [
+        palette,
+        [node_encoder(node, palette=frame.palette) for node in frame.patches],
+        am.astype('uint8').tolist(),
+    ]
+

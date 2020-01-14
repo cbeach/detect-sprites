@@ -127,6 +127,7 @@ class FrameGraph:
                     self.bounding_boxes.append(node.bounding_box)
                     patch_colors.append(tuple(frame[i][j]))
 
+        self.patches = sorted(self.patches, key=lambda p: hash(p))
         self.palette = sort_colors([(int(i[0]), int(i[1]), int(i[2])) for i in palette.keys()])
         self.patch_colors = [self.color_as_palette(i) for i in patch_colors]
 
