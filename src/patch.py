@@ -125,24 +125,20 @@ class Node:
     def master_hash(self, offset=False, color=False):
         if offset is True and color is True:
             if self.hash_memoization.get((True, True), None) is None:
-                self.memoized_hash[(True, True)] = conjugate_numbers(
+                self.hash_memoization[(True, True)] = conjugate_numbers(
                     self._binary_color(),
                     conjugate_numbers(self._binary_offset(), seed=hash(self))
                 )
-            else:
-                return self.memoized_hash[(True, True)]
         elif offset is True and color is False:
             if self.hash_memoization.get((True, False), None) is None:
-                return conjugate_numbers(self._binary_offset(), seed=hash(self))
-            else:
-                return self.memoized_hash[(True, False)]
+                self.hash_memoization[(offset, color)] = conjugate_numbers(self._binary_offset(), seed=hash(self))
         elif offset is False and color is True:
             if self.hash_memoization.get((False, True), None) is None:
-                return conjugate_numbers(self._binary_color(), seed=hash(self))
-            else:
-                return self.memoized_hash[(False, True)]
+                self.hash_memoization[(offset, color)] = conjugate_numbers(self._binary_color(), seed=hash(self))
         elif offset is False and color is False:
             return hash(self)
+
+        return self.hash_memoization[(offset, color)]
 
     def neighborhood_hash(self):
         if self.my_neighborhood_hash is not None:
@@ -188,6 +184,23 @@ class Node:
         else:
             return node
 
+    def edge_hashes(self):
+        e_hashes = []
+        for right in self.neighbors:
+            if right is background_node or right is frame_edge_node:
+                continue
+            else:
+                print('normal_patch')
+                bb1, bb2 = self.bounding_box, right.bounding_box
+                x_o, y_o = bb1[0][0] - bb2[0][0], bb1[0][1] - bb2[0][1]
+                offset = (x_o, y_o)
+
+            full_offset = conjugate_numbers(offset[1], seed=offset[0], num_length=16)
+            temp = conjugate_numbers(full_offset, num_length=32, seed=right.master_hash(color=True, offset=True))
+            print(temp)
+            e_hashes.append(temp)
+
+        return self.master_hash(color=True, offset=True), e_hashes
 
     # Debugging --------------------
     def draw_bounding_box(self, frame):

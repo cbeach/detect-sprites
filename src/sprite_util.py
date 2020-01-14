@@ -99,5 +99,12 @@ def sort_colors(color_list):
     cl = sorted([f'{chr(b)}{chr(g)}{chr(r)}' for b, g, r in color_list])
     return [(ord(b), ord(g), ord(r)) for b, g, r in cl]
 
-def conjugate_numbers(num, seed=0):
-    return (seed << (len(bin(num))) - 2) | num
+def conjugate_numbers(num, seed=0, num_length=None):
+    """
+        bin(seed) + bin(num)
+        seed ends up in most significant bits
+    """
+    if num_length is None:
+        # TODO: Use log you dip
+        num_length = len(bin(num)) - 2
+    return (seed << num_length) | int(num)

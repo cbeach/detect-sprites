@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 
 from patch import Node
-from sprite_util import show_image, get_frame, neighboring_points, sort_colors
+from sprite_util import show_image, get_frame, neighboring_points, sort_colors, conjugate_numbers
 from db.data_store import DataStore
 from db.models import EdgeM, GameM, NodeM, PatchM #, FrameGraphM
 
@@ -289,12 +289,12 @@ class Graphlet:
 
         self.graph = graph
         self.bg_color = graph.bg_color
-        self.subgraph = patches
+        self.nodes = patches
 
         self.bb = self._bounding_box()
-        self.palette = sort_colors(set([tuple(i.color) for i in self.subgraph]))
+        self.palette = sort_colors(set([tuple(i.color) for i in self.nodes]))
         self.clipped_frame = graph.raw_frame[self.bb[0][0]:self.bb[1][0], self.bb[0][1]:self.bb[1][1],:]
-        self.hash_list = sorted([hash(i) for i in self.subgraph])
+        self.hash_list = sorted([hash(i) for i in self.nodes])
         self.mask = self._mask()
         self.palettized = self._palettize()
 
@@ -305,7 +305,7 @@ class Graphlet:
         xs = []
         ys = []
         bbs = []
-        for i in self.subgraph:
+        for i in self.nodes:
             xs.append(i.bounding_box[0][0])
             xs.append(i.bounding_box[1][0])
             ys.append(i.bounding_box[0][1])
@@ -314,7 +314,7 @@ class Graphlet:
         return ((min(xs), min(ys)), (max(xs), max(ys)))
 
     def _mask(self):
-        left_most = list(filter(lambda p: p.bounding_box[0][1] == self.bb[0][1], self.subgraph))
+        left_most = list(filter(lambda p: p.bounding_box[0][1] == self.bb[0][1], self.nodes))
         top_left_patch = list(sorted(left_most, key=lambda p: p.bounding_box[0][0]))[0]
         tlpbb = top_left_patch.bounding_box
         xt, yt = (tlpbb[0][0] - self.bb[0][0], tlpbb[0][1] - self.bb[0][1])
@@ -325,7 +325,7 @@ class Graphlet:
         for x, y in top_left_patch.patch._patch.translate(xt, yt):
             mask[x][y] = True
 
-        for i in self.subgraph:
+        for i in self.nodes:
             ibb = i.bounding_box
             xt, yt = (ibb[0][0] - self.bb[0][0], ibb[0][1] - self.bb[0][1])
             for x, y in i.patch._patch.translate(xt, yt):
@@ -352,7 +352,7 @@ class Graphlet:
         xs = []
         ys = []
         bbs = []
-        for i in self.subgraph:
+        for i in self.nodes:
             xs.append(i.bounding_box[0][0])
             xs.append(i.bounding_box[1][0])
             ys.append(i.bounding_box[0][1])
@@ -360,7 +360,7 @@ class Graphlet:
             bbs.append(i.bounding_box)
         bb = ((min(xs), min(ys)), (max(xs), max(ys)))
 
-        left_most = list(filter(lambda p: p.bounding_box[0][1] == bb[0][1], self.subgraph))
+        left_most = list(filter(lambda p: p.bounding_box[0][1] == bb[0][1], self.nodes))
         top_left_patch = list(sorted(left_most, key=lambda p: p.bounding_box[0][0]))[0]
         tlpbb = top_left_patch.bounding_box
         xt, yt = (tlpbb[0][0] - bb[0][0], tlpbb[0][1] - bb[0][1])
@@ -371,7 +371,7 @@ class Graphlet:
         for x, y in top_left_patch.patch._patch.translate(xt, yt):
             frame[x][y] = top_left_patch.color
 
-        for i in self.subgraph:
+        for i in self.nodes:
             ibb = i.bounding_box
             xt, yt = (ibb[0][0] - bb[0][0], ibb[0][1] - bb[0][1])
             for x, y in i.patch._patch.translate(xt, yt):
@@ -382,7 +382,7 @@ class Graphlet:
     def fill(self, frame=None):
         if frame is None:
             frame = self.frame.raw_frame.copy()
-        for i in self.subgraph:
+        for i in self.nodes:
             frame = i.fill_patch(frame)
         return frame
 
@@ -391,8 +391,38 @@ class Graphlet:
         # Create a new sprite if yes
         return self.show(), Sprite(self)
 
-    def __eq__(self, other):
-        return self.hash_list == other.hash_list
+    def __hash__(self):
+        def edge_hash(left, right):
+            pass
+
+        for node in self.nodes:
+            for nbr in node.neighbors:
+                nbr_hash[node.master_hash(color=True, offset=True)].append(nbr)
+
+
+
+class Edge:
+    def __init__(self, left, right):
+        self.left = left
+        self.right = right
+
+        bb1, bb2 = left.bounding_box, right.bounding_box
+        x_o, y_o = bb1[0][0] - bb2[0][0], bb1[0][1] - bb2[0][1]
+
+        self.offset = (x_o, y_o)
+        self.my_hash = None
+        self.my_hash = hash(self)
+
+    def __hash__(self):
+        """
+            hash(left), hash(right), offset
+        """
+        if self.my_hash is not None:
+            return self.my_hash
+
+        left_and_right = conjugate_numbers(self.right.master_hash(color=True, offset=True), seed=self.left.master_hash(color=True, offset=True))
+        full_offset = conjugate_numbers(self.offset[1], seed=self.offset[0], num_length=16)
+        return conjugate_numbers(full_offset, num_length=32, seed=left_and_right)
 
 
 class Sprite:
