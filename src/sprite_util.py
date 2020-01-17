@@ -119,18 +119,20 @@ def node_encoder(node, palette=None):
     else:
         color = palette.index(tuple(node.color))
 
-    return [
-        node.bounding_box[0],
-        color,
-        patch_encoder(node.patch),
-    ]
+    return {
+        'tlc': node.bounding_box[0],
+        'color': color,
+        'patch': patch_encoder(node.patch),
+    }
 
 def graph_encoder(frame):
     palette = frame.palette
     am = frame.offset_adjacency_matrix
-    return [
-        palette,
-        [node_encoder(node, palette=frame.palette) for node in frame.patches],
-        am.astype('uint8').tolist(),
-    ]
+    print(palette)
+    return {
+        'palette': palette,
+        'nodes': [node_encoder(node, palette=frame.palette) for node in frame.patches],
+        'adjacency_matrix': frame.offset_adjacency_matrix.astype('uint8').tolist(),
+        'shape': frame.raw_frame.shape,
+    }
 
