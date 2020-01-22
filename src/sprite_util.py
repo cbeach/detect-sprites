@@ -111,7 +111,9 @@ def conjugate_numbers(num, seed=0, num_length=None):
     return (seed << num_length) | int(num)
 
 def patch_encoder(patch):
-    return patch.get_mask().astype('uint8').tolist()
+    return {
+        'mask': patch.get_mask().astype('uint8').tolist(),
+    }
 
 def node_encoder(node, palette=None):
     if palette is None:
@@ -128,10 +130,10 @@ def node_encoder(node, palette=None):
 def graph_encoder(frame):
     palette = frame.palette
     am = frame.offset_adjacency_matrix
-    print(palette)
+    nodes = [node_encoder(node, palette=frame.palette) for node in frame.patches if not node.is_frame_edge() and not node.is_background()]
     return {
         'palette': palette,
-        'nodes': [node_encoder(node, palette=frame.palette) for node in frame.patches],
+        'nodes': nodes,
         'adjacency_matrix': frame.offset_adjacency_matrix.astype('uint8').tolist(),
         'shape': frame.raw_frame.shape,
     }

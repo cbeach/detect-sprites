@@ -13,9 +13,19 @@ from db.data_types import BoundingBox, Color, FrameID, Mask, encode_frame_id
 
 class FrameEdge:
     pass
+    def is_background(self):
+        return False
+
+    def is_frame_edge(self):
+        return True
 
 class Background:
     pass
+    def is_background(self):
+        return True
+
+    def is_frame_edge(self):
+        return False
 
 frame_edge_node = FrameEdge()
 background_node = Background()
@@ -72,6 +82,12 @@ class Node:
 
     def is_self(self, coord):
         return self._self_pix.get(coord, False)
+
+    def is_background(self):
+        return False
+
+    def is_frame_edge(self):
+        return False
 
     def get_neighboring_self_pixels(self, frame, x, y):
         nbr_coords = neighboring_points(x, y, frame, self.indirect_neighbors)
