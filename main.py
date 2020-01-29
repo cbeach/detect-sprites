@@ -12,12 +12,13 @@ import jsonpickle
 import numpy as np
 from termcolor import cprint
 
-from patch import Patch, frame_edge_nodes, frame_edge_node, background_node, background_nodes
-from patch_graph import FrameGraph
-from sprite_util import show_image, get_image_list, get_playthrough, load_indexed_playthrough, sort_colors
-import db
-from db.data_store import DataStore
-from db.models import NodeM, PatchM
+from sprites.patch import Patch, frame_edge_nodes, frame_edge_node, background_node, background_nodes
+from sprites.patch_graph import FrameGraph
+from sprites.sprite_util import show_images, show_image, get_image_list, get_playthrough, load_indexed_playthrough, sort_colors
+import sprites.db
+from sprites.db.data_store import DataStore
+from sprites.db.models import NodeM, PatchM
+from sprites.test.test_patches import test_relative_offset
 
 
 
@@ -92,33 +93,50 @@ def parse_and_store_play_through(play_number):
     cprint(f'finished processing playthrough {play_number}: \n  elapsed time: {time.time() - start_time}', 'green')
 
 
-def hash_neighborhoods(play_number):
-    ds = DataStore('db/sqlite.db', games_path='./games.json', echo=False)
-    #ds.initialize()
-    Patch.init_patch_db(ds)
-    sess = ds.Session()
-
-
-    ifg_33 = FrameGraph.from_raw_frame('SuperMarioBros-Nes', play_number=play_number, frame_number=33, indirect=True, ds=ds)
-    ifg_113 = FrameGraph.from_raw_frame('SuperMarioBros-Nes', play_number=play_number, frame_number=113, indirect=True, ds=ds)
-    ifg_125 = FrameGraph.from_raw_frame('SuperMarioBros-Nes', play_number=play_number, frame_number=125, indirect=True, ds=ds)
-
-    #ifg_33.show()
-    #ifg_113.show()
-    #ifg_125.show()
-
-    for i, p in enumerate(ifg_33.patches):
-        temp = p.edge_hashes()
-        if len(temp) > 0:
-            print(f'{i}: {temp}')
+def test_isomorphism():
+    ds = DataStore('./sprites/db/sqlite.db', games_path='./sprites/games.json', echo=False)
+    grnd_img = cv2.imread('./sprites/ground.png')
+    ifg_grnd = FrameGraph(grnd_img, indirect=False, bg_color=[248, 148, 88], ds=ds)
+    rep_grnd_img = cv2.imread('./sprites/repeating_ground.png')
+    rep_ifg_grnd = FrameGraph(rep_grnd_img, indirect=False, ds=ds)
+    degen_rep_grnd_img = cv2.imread('./sprites/degenerate_repeating_ground.png')
+    degen_rep_ifg_grnd = FrameGraph(degen_rep_grnd_img, indirect=False, ds=ds)
+    cont = True
+    test_relative_offset()
+    sys.exit(0)
+    for ic, i in enumerate(rep_ifg_grnd.patches):
+        for jc, j in enumerate(ifg_grnd.patches):
+            print(jc, i.ch())
+            show_image(j.fill_patch(grnd_img), scale=8.0)
+            continue
+            if i == j:
+                try:
+                    print(ic, i.neighborhood_similarity(j))
+                    img = i.fill_neighborhood(rep_ifg_grnd.raw_frame)
+                    sprt = j.fill_neighborhood(grnd_img)
+                    resp = show_images((img, sprt), scale=8.0)
+                    if resp == 27:
+                        sys.exit(0)
+                    #cont = False
+                    break
+                except AssertionError as e:
+                    print('exception')
+                    print(i, bin(i.master_hash(color=True)), i.color, [k.master_hash(color=True) for k in i.neighbors])
+                    print(j, bin(j.master_hash(color=True)), j.color, [k.master_hash(color=True) for k in j.neighbors])
+                    a = i.fill_patch(rep_grnd_img)
+                    for k in i.neighbors:
+                        a = k.fill_patch(a, color=(255, 0, 0))
+                    b = j.fill_patch(grnd_img)
+                    for k in j.neighbors:
+                        b = k.fill_patch(b, color=(255, 0, 0))
+                    show_images((a, b), scale=12.0)
+                    raise(e)
+        if cont is False:
             break
-
-    #print(f'fgs: {fg_33} {ifg_33.patches[0].frame_edge_node}')
-    #print(f'fg: {fg_33.neighbors} {ifg_33.patches[0].frame_edge_node.neighbors}')
 
 
 if __name__ == '__main__':
-    hash_neighborhoods(1000)
+    test_isomorphism()
 
     sys.exit(0)
 

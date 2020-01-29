@@ -7,8 +7,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from sqlalchemy.sql import select
-from db.models import Base, GameM, NodeM, PatchM#, GraphletM, FrameGraphM
-from db.data_types import BoundingBox, Shape
+from .models import Base, GameM, NodeM, PatchM#, GraphletM, FrameGraphM
+from .data_types import BoundingBox, Shape
 
 class DataStore:
     def __init__(self, file_path=None, echo=True, games_path=None):

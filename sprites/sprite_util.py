@@ -46,6 +46,11 @@ def show_image(img, scale=1.0):
     cv2.imshow('frame', cv2.resize(img, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST))
     return cv2.waitKeyEx(0)
 
+def show_images(img, scale=1.0):
+    for i, j in enumerate(img):
+        cv2.imshow(f'frame {i}', cv2.resize(j, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST))
+    return cv2.waitKeyEx(0)
+
 def get_image_list(game='SuperMarioBros-Nes', play_number=None):
     print('Loading image file list')
     if play_number is None:
@@ -131,6 +136,7 @@ def graph_encoder(frame):
     palette = frame.palette
     am = frame.offset_adjacency_matrix
     nodes = [node_encoder(node, palette=frame.palette) for node in frame.patches if not node.is_frame_edge() and not node.is_background()]
+
     return {
         'palette': palette,
         'nodes': nodes,
@@ -138,3 +144,10 @@ def graph_encoder(frame):
         'shape': frame.raw_frame.shape,
     }
 
+def add_rule(img):
+    n_img = np.zeros((img.shape[0] + 1, img.shape[1] + 1, img.shape[2]))
+    column, row = np.array([black, white] * math.ceil(n_img.shape[0] / 2), dtype='uint8'), np.array([black, white] * math.ceil(n_img.shape[1] / 2), dtype='uint8')
+    n_img[1:, 1:] = img
+    n_img[0, :] = row
+    n_img[:, 0] = column
+    return n_img

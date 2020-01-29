@@ -6,26 +6,31 @@ import sys
 
 import cv2
 import numpy as np
-from sprite_util import neighboring_points, conjugate_numbers
-from db.models import EdgeM, NodeM, PatchM
-from db.data_store import DataStore
-from db.data_types import BoundingBox, Color, FrameID, Mask, encode_frame_id
+from .sprite_util import neighboring_points, conjugate_numbers
+from .db.models import EdgeM, NodeM, PatchM
+from .db.data_store import DataStore
+from .db.data_types import BoundingBox, Color, FrameID, Mask, encode_frame_id
 
 class FrameEdge:
-    pass
     def is_background(self):
         return False
 
     def is_frame_edge(self):
+        return True
+
+    def is_special(self):
         return True
 
 class Background:
-    pass
     def is_background(self):
         return True
 
     def is_frame_edge(self):
         return False
+
+    def is_special(self):
+        return True
+
 
 frame_edge_node = FrameEdge()
 background_node = Background()
@@ -47,6 +52,7 @@ class Node:
         self.color = frame[x_seed][y_seed]
         self._coord_list = None
         self.bounding_box = self.patch._bb
+        self.indirect = indirect
 
         self.hash_memoization = {}
         self.hash_memoization['offset'] = self._binary_offset()
@@ -89,6 +95,9 @@ class Node:
     def is_frame_edge(self):
         return False
 
+    def is_special(self):
+        return False
+
     def get_neighboring_self_pixels(self, frame, x, y):
         nbr_coords = neighboring_points(x, y, frame, self.indirect_neighbors)
 
@@ -101,7 +110,7 @@ class Node:
     def get_neighboring_patch_pixels(self, frame):
         nbr_pixels = []
         for x, y in self.coord_list():
-            n = neighboring_points(x, y, frame)
+            n = neighboring_points(x, y, frame, indirect=self.indirect)
             nbr_pixels.extend(n)
         nbr_pixel_set = set(nbr_pixels)
 
@@ -110,13 +119,18 @@ class Node:
     def __hash__(self):
         return hash(self.patch)
 
-    def _binary_offset(self):
-        if 'offset' in self.hash_memoization:
-            return self.hash_memoization['offset']
-
-        shifted_x = conjugate_numbers(self.bounding_box[0][0])
-        shifted_y = conjugate_numbers(self.bounding_box[0][1], seed=shifted_x)
-        self.hash_memoization['offset'] = shifted_y
+    def _binary_offset(self, relative=None):
+        if relative is None:
+            if 'offset' in self.hash_memoization:
+                return self.hash_memoization['offset']
+            shifted_x = conjugate_numbers(self.bounding_box[0][0])
+            shifted_y = conjugate_numbers(self.bounding_box[0][1], seed=shifted_x)
+            self.hash_memoization['offset'] = shifted_y
+        else:
+            x, y = self.get_relative_offset(relative)
+            other = relative.master_hash(color=True)
+            shifted_x = conjugate_numbers(x, seed=other)
+            shifted_y = conjugate_numbers(y, seed=shifted_x)
         return shifted_y
 
     def _binary_color(self):
@@ -135,11 +149,25 @@ class Node:
     def color_hash(self):
         return self.master_hash(color=True)
 
-    def color_offset_hash(self):
-        return self.master_hash(offset=True, color=True)
+    def ch(self):
+        return self.color_hash()
 
-    def master_hash(self, offset=False, color=False):
-        if offset is True and color is True:
+    def oh(self):
+        return self.offset_hash()
+
+    def coh(self):
+        return self.color_offset_hash()
+
+    def color_offset_hash(self):
+        return self.master_hash(offset=True, color=True, relative=None)
+
+    def master_hash(self, offset=False, color=False, relative=None):
+        if relative is not None:
+            return conjugate_numbers(
+                        self._binary_color(),
+                        conjugate_numbers(self._binary_offset(relative=relative), seed=hash(self))
+                    )
+        elif offset is True and color is True:
             if self.hash_memoization.get((True, True), None) is None:
                 self.hash_memoization[(True, True)] = conjugate_numbers(
                     self._binary_color(),
@@ -147,12 +175,13 @@ class Node:
                 )
         elif offset is True and color is False:
             if self.hash_memoization.get((True, False), None) is None:
-                self.hash_memoization[(offset, color)] = conjugate_numbers(self._binary_offset(), seed=hash(self))
+                self.hash_memoization[(offset, color)] = conjugate_numbers(self._binary_offset(relative), seed=hash(self))
         elif offset is False and color is True:
             if self.hash_memoization.get((False, True), None) is None:
                 self.hash_memoization[(offset, color)] = conjugate_numbers(self._binary_color(), seed=hash(self))
         elif offset is False and color is False:
             return hash(self)
+
 
         return self.hash_memoization[(offset, color)]
 
@@ -171,8 +200,7 @@ class Node:
 
     def get_relative_offset(self, other_patch):
         other_bb = other_patch.bounding_box
-        return ((other_bb[0][0] - self.bounding_box[0][0], other_bb[0][1] - self.bounding_box[0][1]),
-                (other_bb[1][0] - self.bounding_box[1][0], other_bb[1][1] - self.bounding_box[1][1]))
+        return (other_bb[0][0] - self.bounding_box[0][0], other_bb[0][1] - self.bounding_box[0][1])
 
     def store(self, game, play_number, frame_number, commit=False, ds=None, sess=None):
         if ds is None:
@@ -221,6 +249,74 @@ class Node:
     def get_mask(self):
         return self.patch.get_mask()
 
+    def neighborhood_similarity(self, sprite_node):
+        if self != sprite_node:
+            raise ValueError('Nodes must be equal to compare neighborhoods')
+        chs, chspr = self.master_hash(color=True), sprite_node.master_hash(color=True),
+        sns, sprns = (set([(self.get_relative_offset(n), n) for n in self.neighbors if not n.is_background() and not n.is_frame_edge()]),
+            set([(sprite_node.get_relative_offset(n), n) for n in sprite_node.neighbors if not n.is_background() and not n.is_frame_edge()]))
+        return [i[1] for i in sns - sprns]
+
+    def neighborhood_diff(self, sprite_node):
+        if self != sprite_node:
+            raise ValueError('Nodes must be equal to compair neighborhoods')
+        chs, chspr = self.master_hash(color=True), sprite_node.master_hash(color=True),
+        sns, sprns = (set([(self.get_relative_offset(n), n) for n in self.neighbors if not n.is_background() and not n.is_frame_edge()]),
+            set([(sprite_node.get_relative_offset(n), n) for n in sprite_node.neighbors if not n.is_background() and not n.is_frame_edge()]))
+        #sns, sprns = set(self.neighbors), set(sprite_node.neighbors)
+        return self == sprite_node and sprns.issubset(sns)
+
+    @classmethod
+    def set_comparison_context(cls, color=True, offset=False):
+        cls.cmp_ctx = {'color': color, 'offset': offset}
+
+    @classmethod
+    def get_comparison_context(cls):
+        return cls.cmp_ctx
+
+    def __eq__(self, other):
+        if self.is_background() or self.is_frame_edge() or other.is_background() or other.is_frame_edge():
+            return False
+        else:
+            ctx = Node.get_comparison_context()
+            return self.master_hash(**Node.get_comparison_context()) == other.master_hash(color=True)
+
+    def __lt__(self, other):
+        if self.is_background() or self.is_frame_edge() or other.is_background() or other.is_frame_edge():
+            return False
+        else:
+            return self.master_hash(**Node.get_comparison_context()) < other.master_hash(color=True)
+
+    def __le__(self, other):
+        if self.is_background() or self.is_frame_edge() or other.is_background() or other.is_frame_edge():
+            return False
+        else:
+            return self.master_hash(**Node.get_comparison_context()) <= other.master_hash(color=True)
+
+    def __ne__(self, other):
+        if self.is_background() or self.is_frame_edge() or other.is_background() or other.is_frame_edge():
+            return False
+        else:
+            return self.master_hash(**Node.get_comparison_context()) != other.master_hash(color=True)
+
+    def __gt__(self, other):
+        if self.is_background() or self.is_frame_edge() or other.is_background() or other.is_frame_edge():
+            return False
+        else:
+            return self.master_hash(**Node.get_comparison_context()) > other.master_hash(color=True)
+
+    def __ge__(self, other):
+        if self.is_background() or self.is_frame_edge() or other.is_background() or other.is_frame_edge():
+            return False
+        else:
+            return self.master_hash(**Node.get_comparison_context()) >= other.master_hash(color=True)
+
+    def cull_neighbors(self):
+        mhashes = {p.master_hash(color=True, offset=True):p for p in self.neighbors}
+        self.neighbors = list(mhashes.values())
+
+    def get_neighbors(self):
+        return [n for n in self.neighbors if not n.is_special()]
     # Debugging --------------------
     def draw_bounding_box(self, frame):
         cp = frame.copy()
@@ -237,6 +333,22 @@ class Node:
             cp[x][y][1] = color[1]
             cp[x][y][2] = color[2]
         return cp
+        # TODO: I should re-write the above, but I'm in the middle of debugging
+        # in jupyter. I'll save the below snippent for later
+
+        # cp = frame.copy()
+        # color = np.array(color, dtype='uint8')
+        # for x, y in self.coord_list():
+        #     cp[x][y] = color
+        # return cp
+
+    def fill_neighborhood(self, frame):
+        frame = self.fill_patch(frame)
+        grad_step = math.floor(256 / len(self.neighbors) + 1)
+        for i, p in enumerate(self.neighbors):
+            if not p.is_frame_edge() and not p.is_background():
+                frame = p.fill_patch(frame, color=(255, grad_step * (i + 1), grad_step * (i + 1)))
+        return frame
 
 
 class Patch:
@@ -389,6 +501,8 @@ class _patch:
         if sess.query(PatchM.id).filter(PatchM.id==hash(self)).scalar() is None:
             sess.add(PatchM(id=hash(self), shape=self._patch.shape, indirect=self.indirect_neighbors, mask=self._patch))
 
+
+Node.set_comparison_context()
 
 def main():
     r = np.array([0, 0, 255], dtype=np.uint8)

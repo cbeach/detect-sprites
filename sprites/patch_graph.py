@@ -8,10 +8,10 @@ from time import time
 import cv2
 import numpy as np
 
-from patch import Node
-from sprite_util import show_image, get_frame, neighboring_points, sort_colors, conjugate_numbers
-from db.data_store import DataStore
-from db.models import EdgeM, GameM, NodeM, PatchM #, FrameGraphM
+from .patch import Node
+from .sprite_util import show_images, show_image, get_frame, neighboring_points, sort_colors, conjugate_numbers
+from .db.data_store import DataStore
+from .db.models import EdgeM, GameM, NodeM, PatchM #, FrameGraphM
 
 class FrameGraph:
     @staticmethod
@@ -35,6 +35,7 @@ class FrameGraph:
             self._init_graph()
         elif subgraph is not None and graph is not None:
             self._from_subgraph(graph, subgraph)
+        #self.add_neighbors_to_nodes()
 
     def _init_frame(self, frame, bg_color, indirect):
         # Frame init
@@ -44,7 +45,7 @@ class FrameGraph:
         if bg_color is None:
             self.bg_color = self.raw_frame[0][0].copy()
         else:
-            self.bg_color = bg_color
+            self.bg_color = np.array(bg_color, dtype='uint8')
 
         self.patch_colors = []
         self.bounding_boxes = []
@@ -65,7 +66,7 @@ class FrameGraph:
 
         start = time()
         self.hash_to_index = {self.hashes[i]:i for i in range(len(self.hashes))}
-        self.offset_hash_to_index = {self.offset_hashes[i]:i for i in range(len(self.offset_hashes))}
+        self.offset_hash_to_index = {p.offset_hash():i for i, p in enumerate(self.patches)}
 
         self.index_to_hash = {i:self.hashes[i] for i in range(len(self.hashes))}
         self.index_to_offset_hash = {i:self.offset_hashes[i] for i in range(len(self.offset_hashes))}
@@ -83,8 +84,6 @@ class FrameGraph:
                 self.hash_to_offset_hash[p_hash].append(o_hash)
 
         start = time()
-        self.adjacency_matrix = np.zeros((len(self.hashes), len(self.hashes)), dtype=bool)
-        self.offset_adjacency_matrix = np.zeros((len(self.offset_hashes), len(self.offset_hashes)), dtype=bool)
 
         self.graph = self.build_graph()
 
@@ -127,7 +126,7 @@ class FrameGraph:
                     self.bounding_boxes.append(node.bounding_box)
                     patch_colors.append(tuple(frame[i][j]))
 
-        self.patches = sorted(self.patches, key=lambda p: hash(p))
+        self.patches = sorted(self.patches, key=lambda p: p.offset_hash())
         self.palette = sort_colors([(int(i[0]), int(i[1]), int(i[2])) for i in palette.keys()])
         self.patch_colors = [self.color_as_palette(i) for i in patch_colors]
 
@@ -136,11 +135,15 @@ class FrameGraph:
             For each patch, get the list of pixels just outside the patch's outer edge.
             Use that list of pixels to find all patches that are touching this one.
         """
-        for patch in self.patches:
+        self.adjacency_matrix = np.zeros((len(self.hashes), len(self.hashes)), dtype=bool)
+        self.offset_adjacency_matrix = np.zeros((len(self.offset_hashes), len(self.offset_hashes)), dtype=bool)
+        for i, patch in enumerate(self.patches):
             current_hash = hash(patch)
             current_offset_hash = patch.offset_hash()
             nbr_pixels = patch.get_neighboring_patch_pixels(self.raw_frame)
-            nbr_patches = list(set(self.get_patches_by_coord(nbr_pixels)))
+            nbr_patches = list(self.get_patches_by_coord(nbr_pixels))
+            patch.neighbors.extend(nbr_patches)
+            patch.cull_neighbors()
             for npatch in nbr_patches:
                 npatch_hash = hash(npatch)
                 npatch_offset_hash = npatch.offset_hash()
@@ -220,13 +223,13 @@ class FrameGraph:
         return np.array_equal(self.bg_color, self.raw_frame[x][y]) is True
 
     def add_neighbors_to_nodes(self):
+        rf = self.raw_frame.copy()
         for i, patch in enumerate(self.patches):
             phash = hash(patch)
             ohash = patch.offset_hash()
-            sparse_nbrs = self.offset_adjacency_matrix[self.offset_hash_to_index[ohash]]
-            nbr_indices = np.nonzero(sparse_nbrs)
-            for j in nbr_indices[0]:
-                patch.neighbors.append(self.patches[j])
+            am_row = self.offset_adjacency_matrix[self.offset_hash_to_index[ohash]]
+            nbrs = [self.patches[i] for i, j in enumerate(am_row) if j == 1]
+            patch.neighbors.extend(nbrs)
 
     def store(self, ds=None):
         if ds is None:
@@ -258,6 +261,11 @@ class FrameGraph:
             #x_offset = Column(Integer)
             #y_offset = Column(Integer)
 
+    def find(self, subgraph):
+        pass
+
+    def color_at(self, x, y):
+        pass
 
     # --- Debugging ---
     def print_adjacency_matrix(self):
@@ -279,6 +287,8 @@ class FrameGraph:
     def show(self, scale=1.0):
         show_image(self.raw_frame, scale=scale)
 
+    def show_neighbors(self):
+        pass
 
 
 class Graphlet:
@@ -399,31 +409,6 @@ class Graphlet:
         for node in self.nodes:
             for nbr in node.neighbors:
                 nbr_hash[node.master_hash(color=True, offset=True)].append(nbr)
-
-
-
-class Edge:
-    def __init__(self, left, right):
-        self.left = left
-        self.right = right
-
-        bb1, bb2 = left.bounding_box, right.bounding_box
-        x_o, y_o = bb1[0][0] - bb2[0][0], bb1[0][1] - bb2[0][1]
-
-        self.offset = (x_o, y_o)
-        self.my_hash = None
-        self.my_hash = hash(self)
-
-    def __hash__(self):
-        """
-            hash(left), hash(right), offset
-        """
-        if self.my_hash is not None:
-            return self.my_hash
-
-        left_and_right = conjugate_numbers(self.right.master_hash(color=True, offset=True), seed=self.left.master_hash(color=True, offset=True))
-        full_offset = conjugate_numbers(self.offset[1], seed=self.offset[0], num_length=16)
-        return conjugate_numbers(full_offset, num_length=32, seed=left_and_right)
 
 
 class Sprite:
