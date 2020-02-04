@@ -18,8 +18,19 @@ from sprites.sprite_util import show_images, show_image, get_image_list, get_pla
 import sprites.db
 from sprites.db.data_store import DataStore
 from sprites.db.models import NodeM, PatchM
-from sprites.test.test_patches import test_relative_offset
 
+ds = DataStore('./sprites/db/sqlite.db', games_path='./sprites/games.json', echo=False)
+ig = cv2.imread('./sprites/test/images/ground.png')
+ir = cv2.imread('./sprites/test/images/repeating_ground.png')
+
+fgg = FrameGraph(ig, bg_color=[248, 148, 88], ds=ds)
+fgg1 = FrameGraph(ig, bg_color=[248, 148, 88], ds=ds)
+fgr = FrameGraph(ir, ds=ds)
+
+dfgg = FrameGraph(ig, indirect=False, bg_color=[248, 148, 88], ds=ds)
+dfgg1 = FrameGraph(ig, indirect=False, ds=ds)
+dfgr = FrameGraph(ir, indirect=False, ds=ds)
+fgt = FrameGraph.from_raw_frame('SuperMarioBros-Nes', 1000, 124, indirect=False, ds=ds)
 
 
 def get_frame_count():
@@ -30,7 +41,7 @@ def get_frame_count():
     accum = 0
     for play_number in range(1, 17696):
         try:
-            play_through = get_playthrough(play_number=play_number)
+            play_through = get_playthrough(play_number)
             data.append((play_number, len(play_through), accum, play_through.shape))
             print(data[-1])
             accum += len(play_through)
@@ -49,7 +60,7 @@ def parse_and_store_play_through(play_number):
     Patch.init_patch_db(ds)
     sess = ds.Session()
 
-    play_through = get_playthrough(play_number=play_number)
+    play_through = get_playthrough(play_number)
     start_time = time.time()
 
     for i, img in enumerate(play_through[:10]):
@@ -136,8 +147,7 @@ def test_isomorphism():
 
 
 if __name__ == '__main__':
-    test_isomorphism()
-
+    fgt.remove_nodes(fgt.patches[10:20])
     sys.exit(0)
 
     fg.store()

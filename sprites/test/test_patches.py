@@ -16,7 +16,7 @@ ig = cv2.imread('./test/images/ground.png')
 ir = cv2.imread('./test/images/repeating_ground.png')
 
 fgg = FrameGraph(ig, bg_color=[248, 148, 88], ds=ds)
-fgg1 = FrameGraph(ig, ds=ds)
+fgg1 = FrameGraph(ig, bg_color=[248, 148, 88], ds=ds)
 fgr = FrameGraph(ir, ds=ds)
 
 dfgg = FrameGraph(ig, indirect=False, bg_color=[248, 148, 88], ds=ds)
@@ -111,7 +111,8 @@ def test_patch_parsing():
     degen_rep_ifg_grnd = FrameGraph(degen_rep_grnd_img, indirect=False, ds=ds)
 
 def test_node_equallity():
-    for i, j in zip(fgg.patches, fgg1.patches) :
+    Node.set_comparison_context()
+    for i, j in zip(sorted(fgg.patches, key=lambda a: a.ch()), sorted(fgg1.patches, key=lambda a: a.ch())):
         assert(i == j)
 
     fgg1.patches.reverse()
@@ -124,6 +125,7 @@ def test_node_equallity():
     Node.set_comparison_context(color=False, offset=False)
     for g, r in zip(g__hash, r__hash):
         if g[0] == r[0]:
+            print(g[0], r[0])
             assert(g[1] == r[1])
 
     g_ohash = [(i.master_hash(offset=True, color=False), i) for i in fgg.patches if not i.is_special()]

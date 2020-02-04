@@ -1,7 +1,7 @@
 # EOD
 
-    I need to figure out how to proceed. Do I really need the adjacency matrices in the database?
-    Can I reconstruct them later?
+    Saving sprites as images now. Need to save them in a more sensible format.
+    Need to create the "UI" for
 
 # Thoughts
 

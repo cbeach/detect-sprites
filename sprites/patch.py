@@ -384,6 +384,9 @@ class Patch:
     def area(self):
         return self._patch.area()
 
+    def coord_list(self):
+        return self._patch.coord_list
+
     def translate(self, x, y):
         return self._patch.translate(x, y)
 
@@ -500,6 +503,9 @@ class _patch:
     def store(self, sess):
         if sess.query(PatchM.id).filter(PatchM.id==hash(self)).scalar() is None:
             sess.add(PatchM(id=hash(self), shape=self._patch.shape, indirect=self.indirect_neighbors, mask=self._patch))
+
+    def __eq__(self, other):
+        return hash(self) == hash(other)
 
 
 Node.set_comparison_context()

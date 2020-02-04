@@ -41,7 +41,7 @@ def index_frame(t):
     print(str(100 * (counter.value / length)) + '%')
 
 def index_playthrough(play_number, sample_size=None, read_only=False, cores=8):
-    play_through = get_playthrough(play_number=play_number)
+    play_through = get_playthrough(play_number)
     sample_size =  sample_size if sample_size is not None else len(play_through)
     global length
     length = sample_size

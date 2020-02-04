@@ -63,12 +63,21 @@ def get_image_list(game='SuperMarioBros-Nes', play_number=None):
 
 def get_frame(game, play_number, frame_number):
     return cv2.imread(PNG_TMPL.format(DATA_DIR=DATA_DIR, game=game, play_number=play_number, frame_number=frame_number))
-def get_playthrough(game='SuperMarioBros-Nes', play_number=None):
+def get_playthrough(play_number, game='SuperMarioBros-Nes'):
     if play_number is not None:
         d = np.load(f'{PLAY_DIR}/{game}/{play_number}/frames.npz')
-        return d['arr_0']
+        if 'arr_0' in d:
+            return d['arr_0']
+        else:
+            return d['original']
     else:
         raise TypeError
+
+def save_partially_processed_playthrough(original, processed, play_number, game='SuperMarioBros-Nes'):
+    d = np.savez(f'{PLAY_DIR}/{game}/{play_number}/frames.npz', original=original, in_progress=partial)
+
+def get_partially_processed_playthrough(array, play_number, game='SuperMarioBros-Nes'):
+    return np.load(f'{PLAY_DIR}/{game}/{play_number}/frames.npz')['in_progress']
 
 def load_indexed_playthrough(play_number, count=None):
     db_path = get_db_path(play_number)
@@ -151,3 +160,4 @@ def add_rule(img):
     n_img[0, :] = row
     n_img[:, 0] = column
     return n_img
+

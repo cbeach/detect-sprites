@@ -8,7 +8,7 @@ from time import time
 import cv2
 import numpy as np
 
-from .patch import Node
+from .patch import Node, Patch
 from .sprite_util import show_images, show_image, get_frame, neighboring_points, sort_colors, conjugate_numbers
 from .db.data_store import DataStore
 from .db.models import EdgeM, GameM, NodeM, PatchM #, FrameGraphM
@@ -17,6 +17,10 @@ class FrameGraph:
     @staticmethod
     def from_raw_frame(game, play_number, frame_number, bg_color=None, indirect=True, ds=None):
         return FrameGraph(get_frame(game, play_number, frame_number), game=game, play_num=play_number, frame_num=frame_number, bg_color=bg_color, indirect=indirect, ds=ds)
+
+    @staticmethod
+    def from_path(path, game, bg_color=None, indirect=True, ds=None):
+        return FrameGraph(cv2.imread(path), game=game, bg_color=bg_color, indirect=indirect, ds=ds)
 
     def __init__(self, frame=None, game='SuperMarioBros-Nes', bg_color=None, indirect=True, graph=None, subgraph=None, ds=None, play_num=0, frame_num=0):
         #if ds is not None:
@@ -56,35 +60,13 @@ class FrameGraph:
 
     def _init_graph(self):
         # graph init
-        start = time()
-        self.hash_to_patch = {hash(i):i for i in self.patches}
         self.offset_hash_to_patch = {i.offset_hash():i for i in self.patches}
 
-        start = time()
         self.hashes = sorted(list(set([hash(i) for i in self.patches])))
         self.offset_hashes = sorted([i.offset_hash() for i in self.patches])
 
-        start = time()
-        self.hash_to_index = {self.hashes[i]:i for i in range(len(self.hashes))}
+        self.hash_to_patches = {hash(i[0]):i for i in itertools.groupby(self.patches, key=lambda p: hash(p))}
         self.offset_hash_to_index = {p.offset_hash():i for i, p in enumerate(self.patches)}
-
-        self.index_to_hash = {i:self.hashes[i] for i in range(len(self.hashes))}
-        self.index_to_offset_hash = {i:self.offset_hashes[i] for i in range(len(self.offset_hashes))}
-
-        start = time()
-        self.offset_hash_to_hash = {i.offset_hash():hash(i) for i in self.patches}
-
-        self.hash_to_offset_hash = {}
-        for i in self.patches:
-            p_hash = hash(i)
-            o_hash = i.offset_hash()
-            if self.hash_to_offset_hash.get(p_hash, None) is None:
-                self.hash_to_offset_hash[p_hash] = [o_hash]
-            else:
-                self.hash_to_offset_hash[p_hash].append(o_hash)
-
-        start = time()
-
         self.graph = self.build_graph()
 
         for i in self.patches:
@@ -99,6 +81,44 @@ class FrameGraph:
                     break
 
         self._subgraphs = [Graphlet(self, sg) for sg in self._isolate_offset_subgraphs()]
+
+    def remove_nodes(self, nodes):
+        img1 = self.raw_frame
+        for p in self.patches:
+            img1 = p.fill_patch(img1)
+
+        ohh = {n.oh():n for n in nodes}
+        dead_patches = [i for i, _ in enumerate(self.offset_hashes) if i not in ohh]
+
+        current_rows = list(self.offset_adjacency_matrix)
+        rows = []
+        ind = 0
+        for i, cur in enumerate(current_rows):
+            if i != dead_patches[ind]:
+                rows.append(cur)
+
+        current_cols = list(np.array(rows, dtype=bool).T)
+        cols = []
+        ind = 0
+        for i, cur in enumerate(current_cols):
+            if i != dead_patches[ind]:
+                cols.append(cur)
+        new_patches = np.array(cols, dtype=bool).T
+
+        backup = self.patches
+        self.patches = list(filter(lambda k: k.oh() not in ohh, self.patches))
+        not_patches = list(filter(lambda k: k.oh() in ohh, backup))
+        self.offset_hashes = list(filter(lambda k: k not in ohh, self.offset_hashes))
+
+        img2 = self.raw_frame
+        for p in self.patches:
+            img2 = p.fill_patch(img2)
+        for p in not_patches:
+            img2 = p.fill_patch(img2, color=(255, 0, 0))
+
+
+        show_image(img1, scale=4.0)
+        show_image(img2, scale=4.0)
 
     def parse_frame(self):
         frame = self.raw_frame
@@ -135,7 +155,6 @@ class FrameGraph:
             For each patch, get the list of pixels just outside the patch's outer edge.
             Use that list of pixels to find all patches that are touching this one.
         """
-        self.adjacency_matrix = np.zeros((len(self.hashes), len(self.hashes)), dtype=bool)
         self.offset_adjacency_matrix = np.zeros((len(self.offset_hashes), len(self.offset_hashes)), dtype=bool)
         for i, patch in enumerate(self.patches):
             current_hash = hash(patch)
@@ -147,13 +166,11 @@ class FrameGraph:
             for npatch in nbr_patches:
                 npatch_hash = hash(npatch)
                 npatch_offset_hash = npatch.offset_hash()
-                self.adjacency_matrix[self.hash_to_index[current_hash]][self.hash_to_index[npatch_hash]] = True
                 self.offset_adjacency_matrix[self.offset_hash_to_index[current_offset_hash]][self.offset_hash_to_index[npatch_offset_hash]] = True
 
     def get_adjacent_patches(self, p_hash=None, o_hash=None):
         if p_hash is not None:
-            primary_index = self.hash_to_index[p_hash]
-            adj_mat = self.adjacency_matrix
+            raise NotImplementedError('get_adjacent_patches is not implemented for p_hash')
         elif o_hash is not None:
             primary_index = self.offset_hash_to_index[o_hash]
             adj_mat = self.offset_adjacency_matrix
@@ -164,8 +181,8 @@ class FrameGraph:
     def _isolate_offset_subgraphs(self):
         adj = np.nonzero(self.offset_adjacency_matrix)
         adj_coords = {i[0]:[j[1] for j in i[1]] for i in itertools.groupby(zip(adj[0], adj[1]), key=lambda x: x[0])}
-        subgraphs = [[self.offset_hash_to_patch[self.index_to_offset_hash[i]]] for i in range(len(self.offset_hashes)) if i not in adj_coords]
-        o_subgraphs = [[self.index_to_offset_hash[i]] for i in range(len(self.offset_hashes)) if i not in adj_coords]
+        subgraphs = [[self.offset_hash_to_patch[self.offset_hashes[i]]] for i in range(len(self.offset_hashes)) if i not in adj_coords]
+        o_subgraphs = [[self.offset_hashes[i]] for i in range(len(self.offset_hashes)) if i not in adj_coords]
         visited = np.zeros(self.offset_adjacency_matrix.shape, dtype=bool)
 
         while len(adj_coords) > 0:
@@ -184,8 +201,8 @@ class FrameGraph:
                     else:
                         continue
 
-                connected.append(self.offset_hash_to_patch[self.index_to_offset_hash[curr]])
-                ohs.append(self.index_to_offset_hash[curr])
+                connected.append(self.offset_hash_to_patch[self.offset_hashes[curr]])
+                ohs.append(self.offset_hashes[curr])
                 del adj_coords[curr]
 
             subgraphs.append(connected)
@@ -268,11 +285,11 @@ class FrameGraph:
         pass
 
     # --- Debugging ---
-    def print_adjacency_matrix(self):
+    def print_offset_adjacency_matrix(self):
         print()
-        print(self.adjacency_matrix.shape)
-        adm_str = '-' * (self.adjacency_matrix.shape[0] + 2) + '\n'
-        for i in self.adjacency_matrix:
+        print(self.offset_adjacency_matrix.shape)
+        adm_str = '-' * (self.offset_adjacency_matrix.shape[0] + 2) + '\n'
+        for i in self.offset_adjacency_matrix:
             row_str = '|'
             for j in i:
                 if j != 0:
@@ -280,7 +297,7 @@ class FrameGraph:
                 else:
                     row_str += ' '
             adm_str += f'{row_str}|\n'
-        adm_str += '-' * (self.adjacency_matrix.shape[0] + 2)
+        adm_str += '-' * (self.offset_adjacency_matrix.shape[0] + 2)
         print(adm_str)
         print()
 
@@ -303,7 +320,8 @@ class Graphlet:
         self.nodes = patches
 
         self.bb = self._bounding_box()
-        self.palette = sort_colors(set([tuple(i.color) for i in self.nodes]))
+        self.palette = sort_colors(set([tuple(i.color) for i in self.nodes] + [tuple(graph.bg_color)]))
+        self.bg_color = self.color_as_palette(tuple(graph.bg_color))
         self.clipped_frame = graph.raw_frame[self.bb[0][0]:self.bb[1][0], self.bb[0][1]:self.bb[1][1],:]
         self.hash_list = sorted([hash(i) for i in self.nodes])
         self.mask = self._mask()
@@ -359,7 +377,7 @@ class Graphlet:
                     temp[x][y] = self.graph.palette[self.palettized[x][y]]
         return temp
 
-    def show(self):
+    def show(self, border=1):
         xs = []
         ys = []
         bbs = []
@@ -388,7 +406,14 @@ class Graphlet:
             for x, y in i.patch._patch.translate(xt, yt):
                 frame[x][y] = i.color
 
-        return show_image(frame, scale=3)
+        img = frame
+        if border > 0:
+            border_color=[0, 0, 0]
+            sx, sy = frame.shape[0] + border * 2, frame.shape[1] + border * 2
+            img = np.array([[border_color] * sy] * sx, dtype='uint8')
+            img[border:sx - border, border:sy - border, :] = frame[:, :, :]
+
+        return show_image(img, scale=3)
 
     def fill(self, frame=None):
         if frame is None:
@@ -397,10 +422,10 @@ class Graphlet:
             frame = i.fill_patch(frame)
         return frame
 
-    def ask_if_sprite(self, bg_color=None):
+    def ask_if_sprite(self, bg_color=None, scale=8.0):
         print('> is this subgraph a sprite [y/N]?')
         # Create a new sprite if yes
-        return self.show(), Sprite(self)
+        return self.show()
 
     def __hash__(self):
         def edge_hash(left, right):
@@ -409,9 +434,3 @@ class Graphlet:
         for node in self.nodes:
             for nbr in node.neighbors:
                 nbr_hash[node.master_hash(color=True, offset=True)].append(nbr)
-
-
-class Sprite:
-    def __init__(self, patch_graph, palette=None):
-        pass
-
