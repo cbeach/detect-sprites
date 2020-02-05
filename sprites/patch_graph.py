@@ -65,7 +65,7 @@ class FrameGraph:
         self.hashes = sorted(list(set([hash(i) for i in self.patches])))
         self.offset_hashes = sorted([i.offset_hash() for i in self.patches])
 
-        self.hash_to_patches = {hash(i[0]):i for i in itertools.groupby(self.patches, key=lambda p: hash(p))}
+        self.hash_to_patches = {hash(i[0]):i for i in itertools.groupby(self.patches, key=hash)}
         self.offset_hash_to_index = {p.offset_hash():i for i, p in enumerate(self.patches)}
         self.graph = self.build_graph()
 
@@ -272,17 +272,8 @@ class FrameGraph:
         sess.add_all(edges)
         sess.commit()
 
-
-            #left_id = Column(Integer, ForeignKey('nodes.id'), primary_key=True)
-            #right_id = Column(Integer, ForeignKey('nodes.id'), primary_key=True)
-            #x_offset = Column(Integer)
-            #y_offset = Column(Integer)
-
-    def find(self, subgraph):
-        pass
-
-    def color_at(self, x, y):
-        pass
+    def __eq__(self, other):
+        sorted(self.offset_hashes) == sorted(other.offset_hashes) and np.array_equal(self.offset_adjacency_matrix, other.offset_adjacency_matrix)
 
     # --- Debugging ---
     def print_offset_adjacency_matrix(self):
@@ -377,7 +368,7 @@ class Graphlet:
                     temp[x][y] = self.graph.palette[self.palettized[x][y]]
         return temp
 
-    def show(self, border=1):
+    def to_image(self, border=1):
         xs = []
         ys = []
         bbs = []
@@ -413,7 +404,13 @@ class Graphlet:
             img = np.array([[border_color] * sy] * sx, dtype='uint8')
             img[border:sx - border, border:sy - border, :] = frame[:, :, :]
 
-        return show_image(img, scale=3)
+        return img
+    def show(self, border=1, parent=None):
+        img = self.to_image(border)
+        if parent is not None:
+            return show_images((img, self.fill(parent)), scale=3)
+        else:
+            return show_image(img, scale=3)
 
     def fill(self, frame=None):
         if frame is None:
@@ -422,10 +419,10 @@ class Graphlet:
             frame = i.fill_patch(frame)
         return frame
 
-    def ask_if_sprite(self, bg_color=None, scale=8.0):
+    def ask_if_sprite(self, bg_color=None, parent_img=None, scale=8.0):
         print('> is this subgraph a sprite [y/N]?')
         # Create a new sprite if yes
-        return self.show()
+        return self.show(parent=parent_img)
 
     def __hash__(self):
         def edge_hash(left, right):
