@@ -211,3 +211,7 @@ def test_relative_offset():
 #                    raise(e)
 #        if cont is False:
 #            break
+
+def test_sprite_to_image():
+    sg = Sprite(path=f'./sprites/sprites/ground0.npz')
+    assert(np.array_equal(ig, sg.to_image(img=ig, bg_color=fgt.bg_color)[:, :, :-1]))

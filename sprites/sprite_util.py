@@ -65,16 +65,15 @@ def get_frame(game, play_number, frame_number):
     return cv2.imread(PNG_TMPL.format(DATA_DIR=DATA_DIR, game=game, play_number=play_number, frame_number=frame_number))
 def get_playthrough(play_number, game='SuperMarioBros-Nes'):
     if play_number is not None:
-        d = np.load(f'{PLAY_DIR}/{game}/{play_number}/frames.npz')
-        if 'arr_0' in d:
-            return d['arr_0']
-        else:
-            return d['original']
+        return dict(np.load(f'{PLAY_DIR}/{game}/{play_number}/frames.npz'))
     else:
         raise TypeError
 
-def save_partially_processed_playthrough(original, processed, play_number, game='SuperMarioBros-Nes'):
-    d = np.savez(f'{PLAY_DIR}/{game}/{play_number}/frames.npz', original=original, in_progress=partial)
+def save_partially_processed_playthrough(raw, play_number, partial=None, game='SuperMarioBros-Nes'):
+    if partial is None:
+        np.savez(f'{PLAY_DIR}/{game}/{play_number}/frames.npz', raw=raw, in_progress=partial)
+    else:
+        np.savez(f'{PLAY_DIR}/{game}/{play_number}/frames.npz', raw=raw)
 
 def get_partially_processed_playthrough(array, play_number, game='SuperMarioBros-Nes'):
     return np.load(f'{PLAY_DIR}/{game}/{play_number}/frames.npz')['in_progress']
@@ -161,3 +160,30 @@ def add_rule(img):
     n_img[:, 0] = column
     return n_img
 
+def fill_all_patches(img, plist):
+    for i in plist:
+        img = i.fill_patch(img)
+    return img
+
+def get_palette(img):
+    sx, sy, schan = img.shape
+    img = img.reshape((sx * sy, schan))
+    return list(set([tuple(pixel) for pixel in img]))
+
+def migrate_play_through(play_through_data, play_number, game):
+    if 'raw' not in play_through_data:
+        print('migrating play through schema')
+        start = time.time()
+        play_through_data['raw'] = play_through_data['arr_0']
+        del play_through_data['arr_0']
+        save_partially_processed_playthrough(play_through_data['raw'], play_number)
+        print(f'finished in {time.time() - start}')
+
+    if np.array_equal(play_through_data['raw'][0][0][0], np.array([88, 148, 248], dtype='uint8')):
+        print('fixing play through color encoding')
+        start = time.time()
+        play_through_data['raw'] = [cv2.cvtColor(frame, cv2.COLOR_RGB2BGR) for frame in play_through_data['raw']]
+        save_partially_processed_playthrough(play_through_data['raw'], play_number)
+        print(f'finished in {time.time() - start}')
+
+    return play_through_data

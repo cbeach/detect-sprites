@@ -41,11 +41,6 @@ background_nodes = defaultdict(list)
 
 class Node:
     def __init__(self, frame, x_seed, y_seed, play_number, frame_number, mask=None, indirect=True, ds=None):
-        #if ds is not None:
-        #    self.ds = ds
-        #else:
-        #    self.ds = ds = DataStore('temp.db', games_path='./games.json')
-
         self.play_number = play_number
         self.frame_number = frame_number
         self.patch = Patch(frame, x_seed, y_seed, mask, indirect, ds=ds)
