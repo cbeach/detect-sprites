@@ -8,6 +8,7 @@ import pickle
 import random
 import time
 
+from numba import jit
 import numpy as np
 import cv2
 
@@ -16,6 +17,7 @@ PLAY_DIR = f'{DATA_DIR}/game_playing/play_data/'
 PNG_TMPL = '{DATA_DIR}/game_playing/play_data/{game}/frames/{play_number}-{frame_number}.png'
 PICKLE_DIR = './db/SuperMarioBros-Nes/pickle'
 
+@jit(nopython=True)
 def neighboring_points(x, y, arr, indirect=True):
     max_x, max_y = arr.shape[:2]
     neighbors = []
@@ -42,13 +44,13 @@ def neighboring_points(x, y, arr, indirect=True):
 
     return neighbors
 
-def show_image(img, scale=1.0):
-    cv2.imshow('frame', cv2.resize(img, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST))
+def show_image(img, scale=1.0, window_name='frame'):
+    cv2.imshow(f'{window_name}', cv2.resize(img, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST))
     return cv2.waitKeyEx(0)
 
-def show_images(img, scale=1.0):
+def show_images(img, scale=1.0, window_name='frame'):
     for i, j in enumerate(img):
-        cv2.imshow(f'frame {i}', cv2.resize(j, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST))
+        cv2.imshow(f'{window_name} {i}', cv2.resize(j, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST))
     return cv2.waitKeyEx(0)
 
 def get_image_list(game='SuperMarioBros-Nes', play_number=None):
@@ -172,7 +174,7 @@ def get_palette(img):
 
 def migrate_play_through(play_through_data, play_number, game):
     if 'raw' not in play_through_data:
-        print('migrating play through schema')
+        print('migrating play through: schema')
         start = time.time()
         play_through_data['raw'] = play_through_data['arr_0']
         del play_through_data['arr_0']
@@ -180,10 +182,29 @@ def migrate_play_through(play_through_data, play_number, game):
         print(f'finished in {time.time() - start}')
 
     if np.array_equal(play_through_data['raw'][0][0][0], np.array([88, 148, 248], dtype='uint8')):
-        print('fixing play through color encoding')
+        print('migrating play through: color encoding')
         start = time.time()
-        play_through_data['raw'] = [cv2.cvtColor(frame, cv2.COLOR_RGB2BGR) for frame in play_through_data['raw']]
+        play_through_data['raw'] = [cv2.cvtColor(frame, cv2.COLOR_RGB2BGRA) for frame in play_through_data['raw']]
+        save_partially_processed_playthrough(play_through_data['raw'], play_number)
+        print(f'finished in {time.time() - start}')
+
+    if play_through_data['raw'].shape[-1] == 3:
+        print('migrating play through: adding alpha channel')
+        start = time.time()
+        play_through_data['raw'] = [cv2.cvtColor(frame, cv2.COLOR_BGR2BGRA) for frame in play_through_data['raw']]
         save_partially_processed_playthrough(play_through_data['raw'], play_number)
         print(f'finished in {time.time() - start}')
 
     return play_through_data
+
+def compare_images(img1, img2, sep=10, sep_color=(255, 255, 255), scale=1.0):
+    return np.hstack((img1, np.array([[sep_color] * sep] * ig.shape[2]), img2))
+
+def palettize_image(image, palette):
+    p_index = {c:i for i, c in enumerate(palette)}
+    palettized = np.zeros((image.shape[0], image.shape[1], 1), dtype='uint8')
+    for x, row in enumerate(palettized):
+        for y, pixel in enumerate(row):
+            pixel = p_index[tuple(image[x][y])]
+    return palettized
+

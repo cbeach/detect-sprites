@@ -312,6 +312,10 @@ class Node:
 
     def get_neighbors(self):
         return [n for n in self.neighbors if not n.is_special()]
+
+    def area(self):
+        return self.patch.area()
+
     # Debugging --------------------
     def draw_bounding_box(self, frame):
         cp = frame.copy()

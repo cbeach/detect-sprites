@@ -1,7 +1,7 @@
 # EOD
 
-    Saving sprites as images now. Need to save them in a more sensible format.
-    Need to create the "UI" for
+    * Does the graphlet touch the frame's edge? If so, do not ask if it's a sprite.
+    * Resave the graphlet's clipped frame. It currently catures partial patches that aren't part of the graphlet.
 
 # Thoughts
 

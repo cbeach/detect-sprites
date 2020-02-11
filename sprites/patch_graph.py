@@ -22,12 +22,7 @@ class FrameGraph:
     def from_path(path, game, bg_color=None, indirect=True, ds=None):
         return FrameGraph(cv2.imread(path), game=game, bg_color=bg_color, indirect=indirect, ds=ds)
 
-    def __init__(self, frame=None, game='SuperMarioBros-Nes', bg_color=None, indirect=True, graph=None, subgraph=None, ds=None, play_num=0, frame_num=0):
-        #if ds is not None:
-        #    self.ds = ds
-        #else:
-        #    self.ds = ds = DataStore(games_path='./games.json')
-
+    def __init__(self, frame=None, game='SuperMarioBros-Nes', bg_color=None, indirect=True, graph=None, subgraph=None, ds=None, play_num=0, frame_num=0, init_alpha=False):
         sess = ds.Session()
         self.game = sess.query(GameM).filter(GameM.name==game).one()
         self.game_id = self.game.id
@@ -39,11 +34,21 @@ class FrameGraph:
             self._init_graph()
         elif subgraph is not None and graph is not None:
             self._from_subgraph(graph, subgraph)
-        #self.add_neighbors_to_nodes()
+        else:
+            raise ValueError(f'unacceptable inputs: frame: {frame}, subgraph: {subgraph}, graph: {graph}')
 
-    def _init_frame(self, frame, bg_color, indirect):
+    def _init_frame(self, frame, bg_color, indirect, init_alpha=False):
         # Frame init
-        self.raw_frame = frame
+        if frame.shape[-1] == 3:
+            self.raw_frame = frame
+            self.alpha_chan = np.full(frame.shape[:2], 255, dtype='uint8')
+            self._init_alpha = True
+        elif frame.shape[-1] == 4:
+            self.raw_frame = frame[:, :, :3]
+            self.alpha_chan = frame[:, :, 3]
+            self._init_alpha = False
+
+        self._init_alpha = self._init_alpha | init_alpha
         self.indirect = indirect
 
         if bg_color is None:
@@ -149,6 +154,7 @@ class FrameGraph:
         self.patches = sorted(self.patches, key=lambda p: p.offset_hash())
         self.palette = sort_colors([(int(i[0]), int(i[1]), int(i[2])) for i in palette.keys()])
         self.patch_colors = [self.color_as_palette(i) for i in patch_colors]
+        self.alpha_chan = mask.astype('uint8') * 255
 
     def build_graph(self):
         """
@@ -275,6 +281,13 @@ class FrameGraph:
     def __eq__(self, other):
         sorted(self.offset_hashes) == sorted(other.offset_hashes) and np.array_equal(self.offset_adjacency_matrix, other.offset_adjacency_matrix)
 
+    def normalize_image(self):
+        sx, sy, sc = self.raw_frame.shape
+        hash_mask = [[None] * sy] * sx
+        for coord, patch in self.pix_index.items():
+            hash_mask[coord[0]][coord[1]] = hash(patch)
+        return hash_mask
+
     # --- Debugging ---
     def print_offset_adjacency_matrix(self):
         print()
@@ -314,12 +327,16 @@ class Graphlet:
         self.palette = sort_colors(set([tuple(i.color) for i in self.nodes] + [tuple(graph.bg_color)]))
         self.bg_color = self.color_as_palette(tuple(graph.bg_color))
         self.clipped_frame = graph.raw_frame[self.bb[0][0]:self.bb[1][0], self.bb[0][1]:self.bb[1][1],:]
-        self.hash_list = sorted([hash(i) for i in self.nodes])
         self.mask = self._mask()
+        #self.patch_mask = self._patch_mask()
+        self.hash_mask = self._hash_mask()
         self.palettized = self._palettize()
 
     def color_as_palette(self, color):
         return self.palette.index(tuple(color))
+
+    def area(self):
+        return sum([node.area() for node in self.nodes])
 
     def _bounding_box(self):
         xs = []
@@ -351,6 +368,20 @@ class Graphlet:
             for x, y in i.patch._patch.translate(xt, yt):
                 mask[x][y] = True
         return mask
+
+    def _patch_mask(self):
+        mask = np.zeros(self.mask.shape, dtype='uint16')
+        bblx, bbly = self.bounding_box[0]
+        for i, node in  enumerate(self.nodes):
+            for x, y in [(x - bblx, y - bbly) for x, y in node.coord_list()]:
+                mask[x][y] = i + 1
+
+    def _hash_mask(self):
+        mask = np.zeros(self.mask.shape, dtype=str)
+        bblx, bbly = self.bb[0]
+        for i, node in  enumerate(self.nodes):
+            for x, y in [(x - bblx, y - bbly) for x, y in node.coord_list()]:
+                mask[x][y] = str(hash(node))
 
     def _palettize(self):
         temp = np.zeros(self.mask.shape, dtype='uint8')
@@ -422,12 +453,11 @@ class Graphlet:
     def ask_if_sprite(self, bg_color=None, parent_img=None, scale=8.0):
         print('> is this subgraph a sprite [y/N]?')
         # Create a new sprite if yes
-        return self.show(parent=parent_img)
+        resp =  self.show(parent=parent_img)
+        cv2.destroyAllWindows()
+        return resp
 
-    def __hash__(self):
-        def edge_hash(left, right):
-            pass
+    def touches_frame_edge(self):
 
-        for node in self.nodes:
-            for nbr in node.neighbors:
-                nbr_hash[node.master_hash(color=True, offset=True)].append(nbr)
+    def __eq__(self, other):
+        return np.array_equal(self.hash_mask, other.hash_mask)
