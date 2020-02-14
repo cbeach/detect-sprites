@@ -64,7 +64,7 @@ def get_image_list(game='SuperMarioBros-Nes', play_number=None):
         return glob(f'{PLAY_DIR}/{game}/{play_number}/*')
 
 def get_frame(game, play_number, frame_number):
-    return cv2.imread(PNG_TMPL.format(DATA_DIR=DATA_DIR, game=game, play_number=play_number, frame_number=frame_number))
+    return cv2.imread(PNG_TMPL.format(DATA_DIR=DATA_DIR, game=game, play_number=play_number, frame_number=frame_number), cv2.IMREAD_UNCHANGED)
 def get_playthrough(play_number, game='SuperMarioBros-Nes'):
     if play_number is not None:
         return dict(np.load(f'{PLAY_DIR}/{game}/{play_number}/frames.npz'))
@@ -72,7 +72,7 @@ def get_playthrough(play_number, game='SuperMarioBros-Nes'):
         raise TypeError
 
 def save_partially_processed_playthrough(raw, play_number, partial=None, game='SuperMarioBros-Nes'):
-    if partial is None:
+    if partial is not None:
         np.savez(f'{PLAY_DIR}/{game}/{play_number}/frames.npz', raw=raw, in_progress=partial)
     else:
         np.savez(f'{PLAY_DIR}/{game}/{play_number}/frames.npz', raw=raw)
@@ -184,7 +184,7 @@ def migrate_play_through(play_through_data, play_number, game):
     if np.array_equal(play_through_data['raw'][0][0][0], np.array([88, 148, 248], dtype='uint8')):
         print('migrating play through: color encoding')
         start = time.time()
-        play_through_data['raw'] = [cv2.cvtColor(frame, cv2.COLOR_RGB2BGRA) for frame in play_through_data['raw']]
+        play_through_data['raw'] = np.array([cv2.cvtColor(frame, cv2.COLOR_RGB2BGRA) for frame in play_through_data['raw']], dtype=np.uint8)
         save_partially_processed_playthrough(play_through_data['raw'], play_number)
         print(f'finished in {time.time() - start}')
 

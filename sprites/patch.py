@@ -6,6 +6,7 @@ import sys
 
 import cv2
 import numpy as np
+
 from .sprite_util import neighboring_points, conjugate_numbers
 from .db.models import EdgeM, NodeM, PatchM
 from .db.data_store import DataStore
@@ -38,7 +39,6 @@ background_node = Background()
 frame_edge_nodes = defaultdict(list)
 background_nodes = defaultdict(list)
 
-
 class Node:
     def __init__(self, frame, x_seed, y_seed, play_number, frame_number, mask=None, indirect=True, ds=None):
         self.play_number = play_number
@@ -48,6 +48,7 @@ class Node:
         self._coord_list = None
         self.bounding_box = self.patch._bb
         self.indirect = indirect
+        self.patch_hash = hash(self.patch)
 
         self.hash_memoization = {}
         self.hash_memoization['offset'] = self._binary_offset()
@@ -69,6 +70,9 @@ class Node:
         self.frame_edge = True
         self.neighbors.append(frame_edge_node)
         frame_edge_nodes[(self.play_number, self.frame_number)].append(self)
+
+    def touches_edge(self):
+        return self.frame_edge
 
     def mark_as_bg_edge(self):
         self.bg_edge = True
@@ -112,7 +116,7 @@ class Node:
         return [i for i in nbr_pixel_set if not self.is_self(i)]
 
     def __hash__(self):
-        return hash(self.patch)
+        return self.patch_hash
 
     def _binary_offset(self, relative=None):
         if relative is None:
@@ -377,6 +381,8 @@ class Patch:
         else:
             self._patch = Patch._PATCHES[hash(temp_patch)]
 
+        self.patch_hash = hash(self._patch)
+
     def shape(self):
         return self._patch.shape()
 
@@ -390,7 +396,7 @@ class Patch:
         return self._patch.translate(x, y)
 
     def __hash__(self):
-        return hash(self._patch)
+        return self.patch_hash
 
     def store(self, ds=None):
         sess = ds.Session()
@@ -417,8 +423,7 @@ class _patch:
         else:
             self._from_model(model)
 
-        self.my_hash = None
-        self.my_hash = hash(self)
+        self.my_hash = self.patch_hash()
 
     def _from_model(self, model):
         self.indirect_neighbors = model.indirect
@@ -480,9 +485,9 @@ class _patch:
         return [(i[0] + x, i[1] + y) for i in self.coord_list]
 
     def __hash__(self):
-        if self.my_hash is not None:
-            return self.my_hash
+        return self.my_hash
 
+    def patch_hash(self):
         patch_hash = 1
         for i, pix in enumerate(self._patch.flatten()):
             patch_hash = patch_hash << 1
@@ -496,7 +501,6 @@ class _patch:
         shifted_y = or_x << 8
         with_shape = shifted_y | y
 
-        self.my_hash = with_shape
         return with_shape
 
     def store(self, sess):

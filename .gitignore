@@ -159,3 +159,6 @@ src/db/sqlite.db
 .ipynb_checkpoints
 *.pyprof
 temp.*
+*.npz
+sprites/db/
+sprites/lists

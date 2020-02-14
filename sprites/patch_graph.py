@@ -16,11 +16,13 @@ from .db.models import EdgeM, GameM, NodeM, PatchM #, FrameGraphM
 class FrameGraph:
     @staticmethod
     def from_raw_frame(game, play_number, frame_number, bg_color=None, indirect=True, ds=None):
-        return FrameGraph(get_frame(game, play_number, frame_number), game=game, play_num=play_number, frame_num=frame_number, bg_color=bg_color, indirect=indirect, ds=ds)
+        img = get_frame(game, play_number, frame_number)
+        return FrameGraph(img, game=game, play_num=play_number, frame_num=frame_number, bg_color=bg_color | img[0][0], indirect=indirect, ds=ds)
 
     @staticmethod
     def from_path(path, game, bg_color=None, indirect=True, ds=None):
-        return FrameGraph(cv2.imread(path), game=game, bg_color=bg_color, indirect=indirect, ds=ds)
+        img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+        return FrameGraph(img, game=game, bg_color=bg_color, indirect=indirect, ds=ds)
 
     def __init__(self, frame=None, game='SuperMarioBros-Nes', bg_color=None, indirect=True, graph=None, subgraph=None, ds=None, play_num=0, frame_num=0, init_alpha=False):
         sess = ds.Session()
@@ -51,10 +53,10 @@ class FrameGraph:
         self._init_alpha = self._init_alpha | init_alpha
         self.indirect = indirect
 
-        if bg_color is None:
-            self.bg_color = self.raw_frame[0][0].copy()
+        if bg_color is not None:
+            self.bg_color = np.array(bg_color[:3], dtype='uint8')
         else:
-            self.bg_color = np.array(bg_color, dtype='uint8')
+            self.bg_color = None
 
         self.patch_colors = []
         self.bounding_boxes = []
@@ -154,7 +156,12 @@ class FrameGraph:
         self.patches = sorted(self.patches, key=lambda p: p.offset_hash())
         self.palette = sort_colors([(int(i[0]), int(i[1]), int(i[2])) for i in palette.keys()])
         self.patch_colors = [self.color_as_palette(i) for i in patch_colors]
-        self.alpha_chan = mask.astype('uint8') * 255
+        if self._init_alpha is True:
+            self._init_alpha = False
+            self.alpha_chan = np.zeros_like(mask, dtype=np.uint8)
+            for node in self.patches:
+                for x, y in node.coord_list():
+                    self.alpha_chan[x][y] = 255
 
     def build_graph(self):
         """
@@ -243,7 +250,12 @@ class FrameGraph:
                 self.pix_index[coord] = patch
 
     def is_background(self, x, y):
-        return np.array_equal(self.bg_color, self.raw_frame[x][y]) is True
+        if self.bg_color is None and self._init_alpha is True:
+            return False
+        elif self.bg_color is None and self._init_alpha is False:
+            return self.alpha_chan[x][y] == 0
+
+        return np.array_equal(self.bg_color[:3], self.raw_frame[x][y][:3]) is True
 
     def add_neighbors_to_nodes(self):
         rf = self.raw_frame.copy()
@@ -324,8 +336,12 @@ class Graphlet:
         self.nodes = patches
 
         self.bb = self._bounding_box()
-        self.palette = sort_colors(set([tuple(i.color) for i in self.nodes] + [tuple(graph.bg_color)]))
-        self.bg_color = self.color_as_palette(tuple(graph.bg_color))
+        self.palette = sort_colors(set([tuple(i.color[:3]) for i in self.nodes]))
+        if graph.bg_color is not None:
+            self.palette = self.palette + [tuple(graph.bg_color[:3])]
+            self.bg_color = self.color_as_palette(tuple(graph.bg_color[:3]))
+        else:
+            self.bg_color = None
         self.clipped_frame = graph.raw_frame[self.bb[0][0]:self.bb[1][0], self.bb[0][1]:self.bb[1][1],:]
         self.mask = self._mask()
         #self.patch_mask = self._patch_mask()
@@ -439,7 +455,7 @@ class Graphlet:
     def show(self, border=1, parent=None):
         img = self.to_image(border)
         if parent is not None:
-            return show_images((img, self.fill(parent)), scale=3)
+            return show_images((self.fill(parent), img), scale=3)
         else:
             return show_image(img, scale=3)
 
@@ -457,7 +473,8 @@ class Graphlet:
         cv2.destroyAllWindows()
         return resp
 
-    def touches_frame_edge(self):
+    def touches_edge(self):
+        return any([n.touches_edge() for n in self.nodes])
 
     def __eq__(self, other):
         return np.array_equal(self.hash_mask, other.hash_mask)

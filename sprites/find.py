@@ -2,22 +2,20 @@
 # coding: utf-8
 
 from collections import defaultdict
+import itertools
 import sys
 import time
 
 import cv2
+from numba import jit
 import numpy as np
 
-from sprites.jupyter_utils import *
-from sprites.patch import Patch, frame_edge_nodes, frame_edge_node, background_node, background_nodes
-from sprites.patch_graph import FrameGraph
-from sprites.sprite_util import show_images, show_image, get_image_list, get_playthrough, load_indexed_playthrough, sort_colors, patch_encoder, node_encoder, graph_encoder
-import sprites.db
-from sprites.db.data_store import DataStore
-from sprites.db.models import NodeM, PatchM
+from .patch import Patch, frame_edge_nodes, frame_edge_node, background_node, background_nodes
+from .patch_graph import FrameGraph
+from .sprite_util import show_images, show_image
+from .db.data_store import DataStore
 
 ds = DataStore('sprites/db/sqlite.db', games_path='./sprites/games.json', echo=False)
-sky_color = np.array([248, 148, 88])
 r, g, b, w, bl = np.array([0, 0, 255]), np.array([0, 255, 0]), np.array([255, 0, 0]), np.array([255, 255, 255]), np.array([0, 0, 0]),
 
 def pairs_equal(a, b):
@@ -78,7 +76,11 @@ def find_pairs_in_graph(pair, graph):
 
 def best_pairs(pairs, graph):
     p2 = [find_pairs_in_graph(p, graph) for p in pairs]
-    l = [len(p) for p in p2]
+    flat = list(itertools.chain(*p2))
+    filtered_by_size = filter(lambda p: p[0].area() + p[1].area() > 5, flat)
+    l = [len(p) for p in filtered_by_size]
+    if len(l) == 0:
+        return None, None
     ind = l.index(max(l))
     return pairs[ind], p2[ind]
 
@@ -92,26 +94,27 @@ def fit_bounding_box(img, bb):
     bbry = img.shape[1] if rx >= img.shape[1] else ry
     return bblx, bbly, bbrx, bbry
 
-def cull_sprites(graph, sprite, coords):
+def cull_sprites(graph, sprite, coords, image):
+    #show_image(sprite.raw_frame, scale=8)
     for i, c in enumerate(coords):  # top left, bottom right corners
         l, r = c
         lx, ly = l
         rx, ry = r
         sx, sy = rx - lx, ry - ly
-        img = graph.raw_frame
 
-        bblx, bbly, bbrx, bbry = fit_bounding_box(img, (l, r))
+        bblx, bbly, bbrx, bbry = fit_bounding_box(image, (l, r))
         nlx, nly = bblx - lx, bbly - ly
         nrx, nry = sprite.raw_frame.shape[0] - (rx - bbrx), sprite.raw_frame.shape[1] - (ry - bbry)
         s_img = sprite.raw_frame.copy()[nlx:nrx, nly:nry, :]
-        for x, row in enumerate(img[bblx:bbrx]):
+        for x, row in enumerate(image[bblx:bbrx]):
             for y, pix in enumerate(row[bbly:bbry]):
-                if np.array_equal(pix, s_img[x][y]):
-                    pix[0] = sky_color[0]
-                    pix[1] = sky_color[1]
-                    pix[2] = sky_color[2]
+                if sprite.alpha_chan[x][y] > 0 and np.array_equal(pix, s_img[x][y]):
+                    #print(x, y)
+                    pix[0] = graph.bg_color[0]
+                    pix[1] = graph.bg_color[1]
+                    pix[2] = graph.bg_color[2]
 
-    return graph
+    return image
 
 def get_sprite_coords(graph, sprite, ref, anchors):
     coords = []
@@ -123,19 +126,21 @@ def get_sprite_coords(graph, sprite, ref, anchors):
     return coords
 
 def find_and_cull(graph, sprites):
-    image = graph.raw_frame
+    image = graph.raw_frame.copy()
     graphlets = graph.subgraphs()
-    for sprite in sprites:
+    for i, sprite in enumerate(sprites):
         if len(sprite.patches) == 1:
             for graphlet in graphlets:
                 if len(graphlet.nodes) == 1 and hash(graphlet.nodes[0]) == hash(sprite.patches[0]):
-                    image = cull_sprites(graph, sprite, [graphlet.bb]).raw_frame
+                    image = cull_sprites(graph, sprite, [graphlet.bb], image)
         else:
             pairs = find_feasible_root_pairs(sprite, graph)
             if len(pairs) == 0:
                 continue
             ref_pair, anchors = best_pairs(pairs, graph)
+            if ref_pair is None or anchors is None:
+                continue
             coords = get_sprite_coords(graph, sprite.raw_frame, ref_pair, anchors)
-            image = cull_sprites(graph, sprite, coords).raw_frame
+            image = cull_sprites(graph, sprite, coords, image)
 
     return image
