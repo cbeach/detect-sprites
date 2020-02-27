@@ -17,7 +17,8 @@ class FrameGraph:
     @staticmethod
     def from_raw_frame(game, play_number, frame_number, bg_color=None, indirect=True, ds=None):
         img = get_frame(game, play_number, frame_number)
-        return FrameGraph(img, game=game, play_num=play_number, frame_num=frame_number, bg_color=bg_color | img[0][0], indirect=indirect, ds=ds)
+        bg_color = bg_color if bg_color is not None else img[0][0]
+        return FrameGraph(img, game=game, play_num=play_number, frame_num=frame_number, bg_color=bg_color, indirect=indirect, ds=ds)
 
     @staticmethod
     def from_path(path, game, bg_color=None, indirect=True, ds=None):

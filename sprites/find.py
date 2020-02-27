@@ -2,6 +2,7 @@
 # coding: utf-8
 
 from collections import defaultdict
+from glob import glob
 import itertools
 import sys
 import time
@@ -12,11 +13,75 @@ import numpy as np
 
 from .patch import Patch, frame_edge_nodes, frame_edge_node, background_node, background_nodes
 from .patch_graph import FrameGraph
-from .sprite_util import show_images, show_image
+from .sprite_util import show_images, show_image, neighboring_points
 from .db.data_store import DataStore
 
 ds = DataStore('sprites/db/sqlite.db', games_path='./sprites/games.json', echo=False)
 r, g, b, w, bl = np.array([0, 0, 255]), np.array([0, 255, 0]), np.array([255, 0, 0]), np.array([255, 255, 255]), np.array([0, 0, 0]),
+
+def merge_images(img1, img2, bg_color):
+    merged = np.zeros_like(img1)
+    for x, row in enumerate(img1):
+        for y, pixel in enumerate(row):
+            if np.array_equal(img1[x][y], bg_color) or np.array_equal(img2[x][y], bg_color):
+                merged[x][y] = bg_color
+            else:
+                merged[x][y] = img1[x][y]
+
+    return merged
+
+@jit(nopython=True)
+def normalize_image(img, indirect=True):
+    sx, sy, sc = img.shape
+    normed = np.zeros(img.shape[:-1], dtype=np.uint8)
+    mask = np.zeros(img.shape[:-1], dtype=np.bool8)
+    index = 1
+    for x in range(len(mask)):
+        row = mask[0]
+        for y, visited in enumerate(row):
+            if visited is True:
+                continue
+            stack = [(x, y)]
+            while len(stack) > 0:
+                cx, cy = stack.pop()  # current_x, current_y
+                if not mask[cx][cy]:
+                    normed[cx][cy] = index
+
+                nbr_coords = neighboring_points(cx, cy, img, indirect)
+                for nx, ny in nbr_coords:
+                    if mask[nx][ny] == False and np.array_equal(img[cx][cy], img[nx][ny]):
+                        stack.append((nx, ny))
+                mask[cx][cy] = True
+
+            index += 1
+    return normed
+
+def unique_sprites(graphs):
+    indirected = [FrameGraph(i.raw_frame, indirect=True, ds=ds) for i in graphs if i.indirect is False]
+    normed = [normalize_image(i.raw_frame).flatten() for i in graphs]
+    shape_normed = [np.array((*graphs[i].raw_frame.shape, *fn)) for i, fn in enumerate(normed)]
+    unique_sprites = []
+    unique_indices = []
+    for i, sn in enumerate(shape_normed):
+        if not any([np.array_equal(sn, j) for j in unique_sprites]):
+            unique_sprites.append(sn)
+            unique_indices.append(i)
+
+    return [graphs[i].raw_frame for i in unique_indices]
+
+def load_sprites(sprite_dir='./sprites/sprites/SuperMarioBros-Nes', game='SuperMarioBros-Nes'):
+    isprites = []
+    dsprites = []
+    for i, path in enumerate(glob(f'{sprite_dir}/*')):
+        extension = path.split('.')[-1]
+        if extension == 'png':
+            isprites.append(FrameGraph.from_path(path, game=game, indirect=True, ds=ds))
+            dsprites.append(FrameGraph.from_path(path, game=game, indirect=False, ds=ds))
+
+    return {
+        True: isprites,
+        False: dsprites,
+    }
 
 def pairs_equal(a, b):
     return (hash(a[0]) == hash(b[0]) and hash(a[1]) == hash(b[1]) and
@@ -130,17 +195,30 @@ def find_and_cull(graph, sprites):
     graphlets = graph.subgraphs()
     for i, sprite in enumerate(sprites):
         if len(sprite.patches) == 1:
+            print('wat?!')
+            print()
             for graphlet in graphlets:
                 if len(graphlet.nodes) == 1 and hash(graphlet.nodes[0]) == hash(sprite.patches[0]):
                     image = cull_sprites(graph, sprite, [graphlet.bb], image)
         else:
             pairs = find_feasible_root_pairs(sprite, graph)
+            print('pairs', pairs)
+            print()
             if len(pairs) == 0:
                 continue
             ref_pair, anchors = best_pairs(pairs, graph)
+            ic = sprite.raw_frame.copy()
+            ic = ref_pair[0].fill_patch(ic)
+            ic = ref_pair[1].fill_patch(ic, color=[255, 0, 0])
+            show_image(ic, scale=8)
+            print('ref_pair', ref_pair)
+            print()
+            print('anchors', anchors)
+            print()
             if ref_pair is None or anchors is None:
                 continue
             coords = get_sprite_coords(graph, sprite.raw_frame, ref_pair, anchors)
+            print('coords', coords)
             image = cull_sprites(graph, sprite, coords, image)
 
     return image

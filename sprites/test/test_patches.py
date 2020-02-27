@@ -1,3 +1,4 @@
+import os
 import sys
 
 import cv2
@@ -7,13 +8,17 @@ import pytest as pt
 from ..patch import Patch, frame_edge_nodes, frame_edge_node, background_node, background_nodes, Node
 from ..patch_graph import FrameGraph
 from ..sprite_util import show_images, show_image, get_image_list, get_playthrough, load_indexed_playthrough, sort_colors
-#import db
 from ..db.data_store import DataStore
 from ..db.models import NodeM, PatchM
 
-ds = DataStore( './db/sqlite.db', games_path='./games.json', echo=False)
-ig = cv2.imread('./test/images/ground.png')
-ir = cv2.imread('./test/images/repeating_ground.png')
+TEST_PATH = os.path.dirname(os.path.realpath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../'))
+
+ds = DataStore(f'{PROJECT_ROOT}/sprites/db/sqlite.db', games_path=f'{PROJECT_ROOT}/sprites/games.json', echo=False)
+Patch.init_patch_db(ds=ds)
+
+ig = cv2.imread(f'{TEST_PATH}/images/ground.png')
+ir = cv2.imread(f'{TEST_PATH}/images/repeating_ground.png')
 
 fgg = FrameGraph(ig, bg_color=[248, 148, 88], ds=ds)
 fgg1 = FrameGraph(ig, bg_color=[248, 148, 88], ds=ds)

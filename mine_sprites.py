@@ -1,28 +1,17 @@
 from collections import namedtuple
-import dill
-from glob import glob
-import gzip
-import itertools
 import json
-import pickle
 import random
-import sys
 import time
 import traceback as tb
 
 import cv2
-import jsonpickle
 import numpy as np
-from termcolor import cprint
-from numba import jit
 
-from sprites.patch import Patch, frame_edge_nodes, frame_edge_node, background_node, background_nodes
-from sprites.patch_graph import FrameGraph, Graphlet
-from sprites.sprite_util import neighboring_points, show_images, show_image, get_image_list, get_playthrough, load_indexed_playthrough, sort_colors, ensure_dir, save_partially_processed_playthrough, get_palette, migrate_play_through, palettize_image
-import sprites.db
+from sprites.patch import Patch
+from sprites.patch_graph import FrameGraph
+from sprites.sprite_util import show_images, show_image, get_playthrough, ensure_dir, migrate_play_through
 from sprites.db.data_store import DataStore
-from sprites.db.models import NodeM, PatchM
-from sprites.find import find_and_cull
+from sprites.find import find_and_cull, load_sprites, unique_sprites, merge_images
 
 ds = DataStore('./sprites/db/sqlite.db', games_path='./sprites/games.json', echo=False)
 Patch.init_patch_db(ds=ds)
@@ -60,70 +49,6 @@ def log_error(message, **kwargs):
         log_message('ERROR', message, **kwargs)
 def log_fatal(message, **kwargs):
         log_message('FATAL', message, **kwargs)
-
-def merge_images(img1, img2, bg_color):
-    merged = np.zeros_like(img1)
-    for x, row in enumerate(img1):
-        for y, pixel in enumerate(row):
-            if np.array_equal(img1[x][y], bg_color) or np.array_equal(img2[x][y], bg_color):
-                merged[x][y] = bg_color
-            else:
-                merged[x][y] = img1[x][y]
-
-    return merged
-
-@jit(nopython=True)
-def normalize_image(img, indirect=True):
-    sx, sy, sc = img.shape
-    normed = np.zeros(img.shape[:-1], dtype=np.uint8)
-    mask = np.zeros(img.shape[:-1], dtype=np.bool8)
-    index = 1
-    for x in range(len(mask)):
-        row = mask[0]
-        for y, visited in enumerate(row):
-            if visited is True:
-                continue
-            stack = [(x, y)]
-            while len(stack) > 0:
-                cx, cy = stack.pop()  # current_x, current_y
-                if not mask[cx][cy]:
-                    normed[cx][cy] = index
-
-                nbr_coords = neighboring_points(cx, cy, img, indirect)
-                for nx, ny in nbr_coords:
-                    if mask[nx][ny] == False and np.array_equal(img[cx][cy], img[nx][ny]):
-                        stack.append((nx, ny))
-                mask[cx][cy] = True
-
-            index += 1
-    return normed
-
-def unique_sprites(graphs):
-    indirected = [FrameGraph(i.raw_frame, indirect=True, ds=ds) for i in graphs if i.indirect is False]
-    normed = [normalize_image(i.raw_frame).flatten() for i in graphs]
-    shape_normed = [np.array((*graphs[i].raw_frame.shape, *fn)) for i, fn in enumerate(normed)]
-    unique_sprites = []
-    unique_indices = []
-    for i, sn in enumerate(shape_normed):
-        if not any([np.array_equal(sn, j) for j in unique_sprites]):
-            unique_sprites.append(sn)
-            unique_indices.append(i)
-
-    return [graphs[i].raw_frame for i in unique_indices]
-
-def load_sprites(sprite_dir='./sprites/sprites/SuperMarioBros-Nes', game='SuperMarioBros-Nes'):
-    isprites = []
-    dsprites = []
-    for i, path in enumerate(glob(f'{sprite_dir}/*')):
-        extension = path.split('.')[-1]
-        if extension == 'png':
-            isprites.append(FrameGraph.from_path(path, game=game, indirect=True, ds=ds))
-            dsprites.append(FrameGraph.from_path(path, game=game, indirect=False, ds=ds))
-
-    return {
-        True: isprites,
-        False: dsprites,
-    }
 
 def process_frame(frame, play_number, frame_number, sprites=None, **kwargs):
     cont = True
@@ -199,6 +124,27 @@ def confirm_sprites(graph, sprites, indirect, supervised=True, not_sprites=None)
     return sprites \
         + [FrameGraph(s, bg_color=graph.bg_color, indirect=indirect, ds=ds) for s in new_sprites], not_sprites
 
+def unsupervised_sprite_finder(graph, sprites, indirect, possible_sprites=None):
+    other_sprites = sprites[not indirect]
+    sprites = sprites[indirect]
+    possible_sprites = [] if possible_sprites is None else possible_sprites
+    new_possible_sprites = []
+    for graphlet in graph.subgraphs():
+        sprite = graphlet.to_image(border=0)
+        if sprite.shape[0] * sprite.shape[1] > 48 ** 2 or graphlet.touches_edge():
+            continue
+
+        query = not any(
+              [np.array_equal(i.subgraphs()[0].clipped_frame, sprite) for i in sprites]
+            + [np.array_equal(i.subgraphs()[0].clipped_frame, sprite) for i in other_sprites]
+            + [np.array_equal(i, sprite) for i in sprites]
+            + [np.array_equal(i.raw_frame, sprite) for i in possible_sprites])
+
+        if query is True:
+            new_possible_sprites.append(FrameGraph(sprite, bg_color=graph.bg_color, indirect=indirect, ds=ds))
+
+    return sprites, possible_sprites, new_possible_sprites
+
 def mine(play_number, game='SuperMarioBros-Nes'):
     play_through_data = migrate_play_through(get_playthrough(play_number, game), play_number, game)
     play_through = play_through_data['partial'] if 'partial' in play_through_data else play_through_data['raw']
@@ -215,35 +161,56 @@ def mine(play_number, game='SuperMarioBros-Nes'):
         show_image(sprite.raw_frame, scale=8.0)
         cv2.imwrite(f'{game_dir}/{j}.png', sprite.raw_frame)
 
-def find(play_number, game='SuperMarioBros-Nes', sample=None, randomize=False, supervised=True):
-    play_through_data = migrate_play_through(get_playthrough(play_number, game), play_number, game)
-    play_through = play_through_data['partial'] if 'partial' in play_through_data else play_through_data['raw']
+def find(play_number, game='SuperMarioBros-Nes', sample=None, randomize=False, supervised=True, start=0, stop=None):
+    #play_through_data = migrate_play_through(get_playthrough(play_number, game), play_number, game)
+    #play_through = play_through_data['partial'] if 'partial' in play_through_data else play_through_data['raw']
+    play_through_data = np.load('./culled.npz')
+    play_through = play_through_data['culled']
+
 
     game_dir = f'./sprites/sprites/{game}'
     ensure_dir(game_dir)
     sprites = load_sprites(game_dir, game)
-    not_sprites = []
+    if supervised is True:
+        not_sprites = []
+    else:
+        possible_sprites = []
+
     if randomize is True:
         play_through = random.shuffle(play_through)
 
-    for i, frame in enumerate(play_through[:sample]):
+    stop  = sample if stop  is None else stop
+    for i, frame in enumerate(play_through[start:stop]):
         parse_start = time.time()
-        igraph = FrameGraph(frame, game='SuperMarioBros-Nes', play_num=play_number, frame_num=i, indirect=True, ds=ds)
-        dgraph = FrameGraph(frame, game='SuperMarioBros-Nes', play_num=play_number, frame_num=i, indirect=False, ds=ds)
+        igraph = FrameGraph(frame, game='SuperMarioBros-Nes', play_num=play_number, bg_color=frame[0][0], frame_num=i, indirect=True, ds=ds)
+        dgraph = FrameGraph(frame, game='SuperMarioBros-Nes', play_num=play_number, bg_color=frame[0][0], frame_num=i, indirect=False, ds=ds)
         parse_end = time.time()
 
         try:
-            sprites[True], not_sprites = confirm_sprites(igraph, sprites, True, not_sprites=not_sprites)
-            sprites[False], not_sprites = confirm_sprites(dgraph, sprites, False, not_sprites=not_sprites)
+            if supervised is True:
+                sprites[True], not_sprites = confirm_sprites(igraph, sprites, True, not_sprites=not_sprites)
+                sprites[False], not_sprites = confirm_sprites(dgraph, sprites, False, not_sprites=not_sprites)
+            else:
+                sprites[True], possible_sprites, new_possible_sprites = unsupervised_sprite_finder(igraph, sprites, True, possible_sprites=possible_sprites)
+                sprites[False], possible_sprites, new_possible_sprites = unsupervised_sprite_finder(dgraph, sprites, False, possible_sprites=possible_sprites)
         except EOFError:
             return
         print('frame number:', i, parse_end - parse_start)
 
-    us = unique_sprites(sprites[True] + sprites[False])
-    print('number of unique sprites:', len(us))
-    for i, sprite in enumerate([j for j in us]):
-        show_image(sprite, scale=8.0)
-        cv2.imwrite(f'{game_dir}/{i}.png', sprite)
+        if supervised is False:
+            us = unique_sprites(new_possible_sprites)
+            print('number of unique possible sprites:', len(us))
+            ensure_dir(f'{game_dir}/possible/')
+            for j, sprite in enumerate([k for k in us]):
+                cv2.imwrite(f'{game_dir}/possible/{start + i}-{j}.png', sprite)
+            possible_sprites.extend(new_possible_sprites)
+
+    if supervised is True:
+        us = unique_sprites(sprites[True] + sprites[False])
+        print('number of unique sprites:', len(us))
+        for i, sprite in enumerate([j for j in us]):
+            show_image(sprite, scale=8.0)
+            cv2.imwrite(f'{game_dir}/{i}.png', sprite)
 
 def cull(play_number, game='SuperMarioBros-Nes', sample=None, randomize=False, start=0, stop=None):
     play_through_data = migrate_play_through(get_playthrough(play_number, game), play_number, game)
@@ -261,7 +228,7 @@ def cull(play_number, game='SuperMarioBros-Nes', sample=None, randomize=False, s
     loop_start = time.time()
     culled_frames = []
     culled_markers = np.zeros(play_through.shape[0:1], dtype=np.bool8)
-    commulative = 0
+    commulative_time = 0
     errors = []
     stop  = sample if stop  is None else stop
 
@@ -288,25 +255,26 @@ def cull(play_number, game='SuperMarioBros-Nes', sample=None, randomize=False, s
                 )
             )
 
-        try:
-            d_img = find_and_cull(dgraph, sprites[False])
-        except Exception as err:
-            # ['error', 'stack_trace', 'frame_number', 'indirect', 'frame']
-            err_tb = tb.format_exc()
-            print('------------------------- err_tb -------------------------')
-            print(f'frame: {index}')
-            print(err_tb)
-            print('----------------------------------------------------------')
-            print()
-            errors.append(
-                CullExceptionBundle(
-                    err, err_tb, i, False, dgraph.raw_frame
-                )
-            )
-
+        #try:
+        #    d_img = find_and_cull(dgraph, sprites[False])
+        #except Exception as err:
+        #    # ['error', 'stack_trace', 'frame_number', 'indirect', 'frame']
+        #    err_tb = tb.format_exc()
+        #    print('------------------------- err_tb -------------------------')
+        #    print(f'frame: {index}')
+        #    print(err_tb)
+        #    print('----------------------------------------------------------')
+        #    print()
+        #    errors.append(
+        #        CullExceptionBundle(
+        #            err, err_tb, i, False, dgraph.raw_frame
+        #        )
+        #    )
+        show_image(i_img, scale=3)
+        return
         end = time.time()
-        commulative += end - start
-        print(f'frame {i}: {end - start}, {commulative}')
+        commulative_time += end - start
+        print(f'frame {i}: {end - start}, {commulative_time}')
 
         culled_frames.append(merge_images(i_img, d_img, bg_color=igraph.bg_color))
     loop_end = time.time()
@@ -320,12 +288,18 @@ def cull(play_number, game='SuperMarioBros-Nes', sample=None, randomize=False, s
             for e in errors:
                 # ['error', 'stack_trace', 'frame_number', 'indirect', 'frame']
                 log_error(message=e.error.args, error=e.error, stack_trace=e.stack_trace,
-                        frame_number=frame_number, indirect=indirect, frame=frame)
+                        frame_number=e.frame_number, indirect=e.indirect, frame=e.frame)
 
-def show_partial_pt(play_number):
-    play_through_data = get_playthrough(play_number, 'SuperMarioBros-Nes')
-    for i in play_through_data['in_progress']:
-        show_image(i, scale=3)
+def mark_culled_images(play_number):
+    play_through_data = np.load('./culled.npz')
+    culled = play_through_data['culled']
+    for i, img in enumerate(culled):
+        resp = show_image(img, scale=3, window_name=str(i))
+        if resp == ord('y'):
+            print(i)
+        elif resp == 27:
+            return
+        cv2.destroyAllWindows()
 
 def show_sprites():
     game='SuperMarioBros-Nes'
@@ -339,7 +313,8 @@ def main():
     play_number = 1000
     #play_through_data = migrate_play_through(get_playthrough(play_number, game), play_number, game)
     #raw = play_through_data['raw']
-    cull(play_number, game)
+    cull(play_number, game, start=13, stop=14)
+    #find(play_number, game, start=1492, stop=1493, supervised=True)
 
 if __name__ == '__main__':
     main()

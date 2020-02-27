@@ -1,0 +1,47 @@
+cp little_0.png symbols 
+cp little_1.png symbols
+cp 0.png symbols
+cp 1.png symbols
+cp 2.png symbols
+cp 3.png symbols
+cp 4.png symbols
+cp 5.png symbols
+cp 6.png symbols
+cp 7.png symbols
+cp 8.png symbols
+cp 9.png symbols
+
+cp A.png symbols
+cp D.png symbols
+cp E.png symbols
+cp I.png symbols
+cp L.png symbols
+cp M.png symbols
+cp O.png symbols
+cp R.png symbols
+cp T.png symbols
+cp W.png symbols
+cp dash.png symbols
+cp multiplication.png symbols
+cp coin_icon-1.png symbols
+cp coin_icon-2.png symbols
+cp coin_icon-3.png symbols
+
+cp cloud-1.png background
+cp cloud-2.png background
+cp cloud-3.png background
+cp dark_green_bush-1.png background
+cp light_green_bush-1.png background
+cp light_green_bush-3.png background
+
+cp little_jump.png pc
+
+cp ground.png map
+
+cp goomba-1.png mobs/aggressive
+cp goomba-2.png mobs/aggressive
+
+cp pipe-1.png entities
+cp pipe-3.png entities
+cp pipe-4.png entities
+cp question_box-1.png entities
