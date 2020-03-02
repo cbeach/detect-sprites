@@ -32,14 +32,28 @@ def get_test_cases(play_number, game):
     # return test_case_names, test_cases, expected_values, sprite_sets
     return names, [cv2.imread(p, cv2.IMREAD_UNCHANGED) for p, _ in test_paths], [cv2.imread(p, cv2.IMREAD_UNCHANGED) for _, p in test_paths], sprite_sets
 
+def image_diff(source, img1, img2):
+    if source.shape != img1.shape or source.shape != img2.shape:
+        raise ValueError(
+            f'all images must be the same shape - source: {source.shape}, img1: {img1.shape}, img2: {img2.shape}')
+
+    src = source.copy()
+    for x, row in enumerate(img1):
+        for y, pixel in enumerate(row):
+            if not np.array_equal(img1[x][y], img2[x][y]):
+                src[x][y][0] = 0
+                src[x][y][1] = 255
+                src[x][y][2] = 0
+    return src
+
 class TestCull:
     def setup_class(self):
         ensure_dir(f'{TEST_PATH}/failed-tests/')
         self.test_case_names, self.test_cases, self.expected, self.sprite_sets = get_test_cases(1000, 'SuperMarioBros-Nes')
 
     def test_images(self):
-        ifgs = [FrameGraph(img.copy(), bg_color=img[0][0], indirect=True, ds=ds) for img in self.test_cases]
-        dfgs = [FrameGraph(img.copy(), bg_color=img[0][0], indirect=False, ds=ds) for img in self.test_cases]
+        ifgs = [FrameGraph(img.copy(), bg_color=img[0][0], indirect=True, ds=ds) for img in self.test_cases[:1]]
+        #dfgs = [FrameGraph(img.copy(), bg_color=img[0][0], indirect=False, ds=ds) for img in self.test_cases]
 
         for i, ifg in enumerate(ifgs):
             tc = self.test_cases[i]
@@ -53,6 +67,3 @@ class TestCull:
                 cv2.imwrite(f'{TEST_PATH}/failed-tests/{self.test_case_names[i]}-culled.png', culled_img)
                 cv2.imwrite(f'{TEST_PATH}/failed-tests/{self.test_case_names[i]}-expected.png', expected)
                 raise err
-
-
-

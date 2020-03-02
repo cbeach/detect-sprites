@@ -301,6 +301,9 @@ class FrameGraph:
             hash_mask[coord[0]][coord[1]] = hash(patch)
         return hash_mask
 
+    def to_image(self):
+        return np.dstack((self.raw_frame[:, :, 0], self.raw_frame[:, :, 1], self.raw_frame[:, :, 2], self.alpha_chan,))
+
     # --- Debugging ---
     def print_offset_adjacency_matrix(self):
         print()
@@ -344,6 +347,7 @@ class Graphlet:
         else:
             self.bg_color = None
         self.clipped_frame = graph.raw_frame[self.bb[0][0]:self.bb[1][0], self.bb[0][1]:self.bb[1][1],:]
+        self.clipped_alpha = graph.alpha_chan[self.bb[0][0]:self.bb[1][0], self.bb[0][1]:self.bb[1][1]]
         self.mask = self._mask()
         #self.patch_mask = self._patch_mask()
         self.hash_mask = self._hash_mask()
@@ -434,25 +438,28 @@ class Graphlet:
         xt, yt = (tlpbb[0][0] - bb[0][0], tlpbb[0][1] - bb[0][1])
 
         shape = bb[1][0] - bb[0][0], bb[1][1] - bb[0][1], 3
-        frame = np.zeros(shape, dtype='uint8')
+        img = np.zeros(shape, dtype='uint8')
 
         for x, y in top_left_patch.patch._patch.translate(xt, yt):
-            frame[x][y] = top_left_patch.color
+            img[x][y] = top_left_patch.color
 
+        a_chan = np.zeros((img.shape[0], img.shape[1], 4), dtype=np.uint8)
         for i in self.nodes:
             ibb = i.bounding_box
             xt, yt = (ibb[0][0] - bb[0][0], ibb[0][1] - bb[0][1])
             for x, y in i.patch._patch.translate(xt, yt):
-                frame[x][y] = i.color
+                img[x][y] = i.color
+                a_chan[x][y] = 0
 
-        img = frame
         if border > 0:
             border_color=[0, 0, 0]
-            sx, sy = frame.shape[0] + border * 2, frame.shape[1] + border * 2
+            sx, sy = img.shape[0] + border * 2, img.shape[1] + border * 2
             img = np.array([[border_color] * sy] * sx, dtype='uint8')
-            img[border:sx - border, border:sy - border, :] = frame[:, :, :]
+            img[border:sx - border, border:sy - border, :] = img[:, :, :]
 
-        return img
+        a_chan = np.dstack((img[:, :, 0], img[:, :, 1], img[:, :, 2], self.clipped_alpha,))
+        return a_chan
+
     def show(self, border=1, parent=None):
         img = self.to_image(border)
         if parent is not None:

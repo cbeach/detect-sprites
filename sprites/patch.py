@@ -278,37 +278,37 @@ class Node:
             return False
         else:
             ctx = Node.get_comparison_context()
-            return self.master_hash(**Node.get_comparison_context()) == other.master_hash(color=True)
+            return self.master_hash(**Node.get_comparison_context()) == other.master_hash(**Node.get_comparison_context())
 
     def __lt__(self, other):
         if self.is_background() or self.is_frame_edge() or other.is_background() or other.is_frame_edge():
             return False
         else:
-            return self.master_hash(**Node.get_comparison_context()) < other.master_hash(color=True)
+            return self.master_hash(**Node.get_comparison_context()) < other.master_hash(**Node.get_comparison_context())
 
     def __le__(self, other):
         if self.is_background() or self.is_frame_edge() or other.is_background() or other.is_frame_edge():
             return False
         else:
-            return self.master_hash(**Node.get_comparison_context()) <= other.master_hash(color=True)
+            return self.master_hash(**Node.get_comparison_context()) <= other.master_hash(**Node.get_comparison_context())
 
     def __ne__(self, other):
         if self.is_background() or self.is_frame_edge() or other.is_background() or other.is_frame_edge():
             return False
         else:
-            return self.master_hash(**Node.get_comparison_context()) != other.master_hash(color=True)
+            return self.master_hash(**Node.get_comparison_context()) != other.master_hash(**Node.get_comparison_context())
 
     def __gt__(self, other):
         if self.is_background() or self.is_frame_edge() or other.is_background() or other.is_frame_edge():
             return False
         else:
-            return self.master_hash(**Node.get_comparison_context()) > other.master_hash(color=True)
+            return self.master_hash(**Node.get_comparison_context()) > other.master_hash(**Node.get_comparison_context())
 
     def __ge__(self, other):
         if self.is_background() or self.is_frame_edge() or other.is_background() or other.is_frame_edge():
             return False
         else:
-            return self.master_hash(**Node.get_comparison_context()) >= other.master_hash(color=True)
+            return self.master_hash(**Node.get_comparison_context()) >= other.master_hash(**Node.get_comparison_context())
 
     def cull_neighbors(self):
         mhashes = {p.master_hash(color=True, offset=True):p for p in self.neighbors}

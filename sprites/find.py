@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-from collections import defaultdict
 from glob import glob
 import itertools
+import os
 import sys
 import time
 
@@ -67,9 +67,9 @@ def unique_sprites(graphs):
             unique_sprites.append(sn)
             unique_indices.append(i)
 
-    return [graphs[i].raw_frame for i in unique_indices]
+    return graphs
 
-def load_sprites(sprite_dir='./sprites/sprites/SuperMarioBros-Nes', game='SuperMarioBros-Nes'):
+def load_sprites(sprite_dir='./sprites/sprites/SuperMarioBros-Nes', game='SuperMarioBros-Nes', ds=None):
     isprites = []
     dsprites = []
     for i, path in enumerate(glob(f'{sprite_dir}/*')):
@@ -195,30 +195,34 @@ def find_and_cull(graph, sprites):
     graphlets = graph.subgraphs()
     for i, sprite in enumerate(sprites):
         if len(sprite.patches) == 1:
-            print('wat?!')
-            print()
             for graphlet in graphlets:
                 if len(graphlet.nodes) == 1 and hash(graphlet.nodes[0]) == hash(sprite.patches[0]):
                     image = cull_sprites(graph, sprite, [graphlet.bb], image)
         else:
             pairs = find_feasible_root_pairs(sprite, graph)
-            print('pairs', pairs)
-            print()
             if len(pairs) == 0:
                 continue
             ref_pair, anchors = best_pairs(pairs, graph)
-            ic = sprite.raw_frame.copy()
-            ic = ref_pair[0].fill_patch(ic)
-            ic = ref_pair[1].fill_patch(ic, color=[255, 0, 0])
-            show_image(ic, scale=8)
-            print('ref_pair', ref_pair)
-            print()
-            print('anchors', anchors)
-            print()
             if ref_pair is None or anchors is None:
                 continue
             coords = get_sprite_coords(graph, sprite.raw_frame, ref_pair, anchors)
-            print('coords', coords)
             image = cull_sprites(graph, sprite, coords, image)
 
     return image
+
+def confirm_sprites(src_dir, dest_dir):
+    sprite_count = len([glob(f'{dest_dir}/*.png')])
+    for i, filename in enumerate(glob(f'{src_dir}/*.png')):
+        img = cv2.imread(filename, cv2.IMREAD_UNCHANGED)
+        sx, sy, sd = img.shape
+        scale = 720 / max((sx, sy))
+        resp = show_image(img, scale=scale)
+        if resp == ord('y') or resp == ord('Y'):
+            cv2.imwrite(f'{dest_dir}/{sprite_count + i}.png', img)
+            #os.remove(filename)
+        elif resp == ord('n') or resp == ord('N'):
+            #os.remove(filename)
+        elif resp == 27:  # ESC key
+            break
+        else:
+            continue

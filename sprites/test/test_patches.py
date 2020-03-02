@@ -1,13 +1,12 @@
+from glob import glob
 import os
-import sys
 
 import cv2
 import numpy as np
-import pytest as pt
 
 from ..patch import Patch, frame_edge_nodes, frame_edge_node, background_node, background_nodes, Node
 from ..patch_graph import FrameGraph
-from ..sprite_util import show_images, show_image, get_image_list, get_playthrough, load_indexed_playthrough, sort_colors
+from ..sprite_util import show_images, show_image, get_image_list, get_playthrough, load_indexed_playthrough, sort_colors, ensure_dir
 from ..db.data_store import DataStore
 from ..db.models import NodeM, PatchM
 
@@ -17,8 +16,8 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__f
 ds = DataStore(f'{PROJECT_ROOT}/sprites/db/sqlite.db', games_path=f'{PROJECT_ROOT}/sprites/games.json', echo=False)
 Patch.init_patch_db(ds=ds)
 
-ig = cv2.imread(f'{TEST_PATH}/images/ground.png')
-ir = cv2.imread(f'{TEST_PATH}/images/repeating_ground.png')
+ig = cv2.imread(f'{TEST_PATH}/test_cases/SuperMarioBros-Nes/images/ground.png')
+ir = cv2.imread(f'{TEST_PATH}/test_cases/SuperMarioBros-Nes/images/repeating_ground.png')
 
 fgg = FrameGraph(ig, bg_color=[248, 148, 88], ds=ds)
 fgg1 = FrameGraph(ig, bg_color=[248, 148, 88], ds=ds)
@@ -108,14 +107,7 @@ def test_patch_parsing():
     assert(len(tg5.patches) == 4)
     assert(len(sg5) == 2)
 
-    grnd_img = cv2.imread('./ground.png')
-    ifg_grnd = FrameGraph(grnd_img, indirect=False, bg_color=[248, 148, 88], ds=ds)
-    rep_grnd_img = cv2.imread('./repeating_ground.png')
-    rep_ifg_grnd = FrameGraph(rep_grnd_img, indirect=False, ds=ds)
-    degen_rep_grnd_img = cv2.imread('./degenerate_repeating_ground.png')
-    degen_rep_ifg_grnd = FrameGraph(degen_rep_grnd_img, indirect=False, ds=ds)
-
-def test_node_equallity():
+def test_node_comparison():
     Node.set_comparison_context()
     for i, j in zip(sorted(fgg.patches, key=lambda a: a.ch()), sorted(fgg1.patches, key=lambda a: a.ch())):
         assert(i == j)
@@ -128,9 +120,9 @@ def test_node_equallity():
     r__hash = [(hash(i), i) for i in fgr.patches if not i.is_special()]
 
     Node.set_comparison_context(color=False, offset=False)
-    for g, r in zip(g__hash, r__hash):
+    for i, h in enumerate(zip(g__hash, r__hash)):
+        g, r = h
         if g[0] == r[0]:
-            print(g[0], r[0])
             assert(g[1] == r[1])
 
     g_ohash = [(i.master_hash(offset=True, color=False), i) for i in fgg.patches if not i.is_special()]
@@ -173,50 +165,72 @@ def test_relative_offset():
     nbr = target_node.get_neighbors()[[i.oh() for i in target_node.get_neighbors()].index(target_nbr_ohash)]
     assert(target_node.get_relative_offset(nbr) == (-1, 8))
 
-#def test_isomorphism():
-#    grnd_img = cv2.imread('./ground.png')
-#    ifg_grnd = FrameGraph(grnd_img, indirect=False, bg_color=[248, 148, 88], ds=ds)
-#    rep_grnd_img = cv2.imread('./repeating_ground.png')
-#    rep_ifg_grnd = FrameGraph(rep_grnd_img, indirect=False, ds=ds)
-#    degen_rep_grnd_img = cv2.imread('./degenerate_repeating_ground.png')
-#    degen_rep_ifg_grnd = FrameGraph(degen_rep_grnd_img, indirect=False, ds=ds)
-#    cont = True
-#    for ic, i in enumerate(rep_ifg_grnd.patches):
-#        if ic == 3:
-#            print(i.neighbors)
-#            img = i.fill_neighborhood(rep_ifg_grnd.raw_frame)
-#            resp = show_image(img, scale=8.0)
-#            if resp == 27:
-#                sys.exit(0)
-#        continue
-#
-#        for jc, j in enumerate(ifg_grnd.patches):
-#            #print(ic, jc)
-#            #print(i.neighbors, j.neighbors)
-#            if i == j:
-#                try:
-#                    print(ic, i.neighborhood_similarity(j))
-#                    img = i.fill_neighborhood(rep_ifg_grnd.raw_frame)
-#                    resp = show_image(img, scale=8.0)
-#                    if resp == 27:
-#                        sys.exit(0)
-#                    #cont = False
-#                    break
-#                except AssertionError as e:
-#                    print('exception')
-#                    print(i, bin(i.master_hash(color=True)), i.color, [k.master_hash(color=True) for k in i.neighbors])
-#                    print(j, bin(j.master_hash(color=True)), j.color, [k.master_hash(color=True) for k in j.neighbors])
-#                    a = i.fill_patch(rep_grnd_img)
-#                    for k in i.neighbors:
-#                        a = k.fill_patch(a, color=(255, 0, 0))
-#                    b = j.fill_patch(grnd_img)
-#                    for k in j.neighbors:
-#                        b = k.fill_patch(b, color=(255, 0, 0))
-#                    show_images((a, b), scale=12.0)
-#                    raise(e)
-#        if cont is False:
-#            break
+def test_images():
+    def color_frame_edges(sprite: FrameGraph):
+        img = sprite.raw_frame.copy()
+        for patch in sprite.patches:
+            if patch.frame_edge is True:
+                img = patch.fill_patch(img)
+        return img
 
-def test_sprite_to_image():
-    sg = Sprite(path=f'./sprites/sprites/ground0.npz')
-    assert(np.array_equal(ig, sg.to_image(img=ig, bg_color=fgt.bg_color)[:, :, :-1]))
+    def color_bg_edges(sprite: FrameGraph):
+        img = sprite.raw_frame.copy()
+        for patch in sprite.patches:
+            if patch.bg_edge is True:
+                img = patch.fill_patch(img)
+        return img
+
+    names = [path.split('/')[-1] for path in glob(f'{TEST_PATH}/test_cases/SuperMarioBros-Nes/images/test_images/*')]
+    has_bg_color = ['repeating' in name for name in names]
+
+    test_cases = []
+    expected = []
+    for i, test_name in enumerate(names):
+        expected.append(cv2.imread(f'{TEST_PATH}/test_cases/SuperMarioBros-Nes/images/expected/{test_name}', cv2.IMREAD_UNCHANGED))
+        test_img = cv2.imread(f'{TEST_PATH}/test_cases/SuperMarioBros-Nes/images/test_images/{test_name}', cv2.IMREAD_UNCHANGED)
+        if 'background' in test_name or 'repeating' in test_name:
+            if '.indirect.' in test_name:
+                test_cases.append(FrameGraph(test_img.copy(), indirect=True, bg_color=test_img[0][0].copy(), ds=ds))
+            elif '.direct.' in test_name:
+                test_cases.append(FrameGraph(test_img.copy(), indirect=False, bg_color=test_img[0][0].copy(), ds=ds))
+        else:
+            if '.indirect.' in test_name:
+                test_cases.append(FrameGraph(test_img.copy(), indirect=True, ds=ds))
+            elif '.direct.' in test_name:
+                test_cases.append(FrameGraph(test_img.copy(), indirect=False, ds=ds))
+
+    def image_diff(source, img1, img2):
+        if source.shape != img1.shape or source.shape != img2.shape:
+            raise ValueError(f'all images must be the same shape - source: {source.shape}, img1: {img1.shape}, img2: {img2.shape}')
+
+        src = source.copy()
+        for x, row in enumerate(img1):
+            for y, pixel in enumerate(row):
+                if not np.array_equal(img1[x][y], img2[x][y]):
+                    src[x][y][0] = 0
+                    src[x][y][1] = 255
+                    src[x][y][2] = 0
+        return src
+
+    def instrumented_assertion(i, test_name):
+        try:
+            assert(np.array_equal(color_func(test_cases[i])[:, :, :3], expected[i][:, :, :3]))
+        except AssertionError as err:
+            print('i', i, 'test_name', test_name, 'color_func', color_func, 'len(patches)', len(test_cases[i].patches),
+                  'bg_color', test_cases[i].bg_color)
+            cv2.imwrite(f'{TEST_PATH}/failed-tests/original-{test_name}', test_cases[i].raw_frame)
+            cv2.imwrite(f'{TEST_PATH}/failed-tests/colored-{test_name}', color_func(test_cases[i]))
+            cv2.imwrite(f'{TEST_PATH}/failed-tests/expected-{test_name}', expected[i])
+            cv2.imwrite(f'{TEST_PATH}/failed-tests/diffed-{test_name}',
+                        image_diff(test_cases[i].raw_frame[:, :, :3], color_func(test_cases[i])[:, :, :3],
+                                   expected[i][:, :, :3]))
+            raise err
+
+    ensure_dir(f'{TEST_PATH}/failed-tests/')
+    for i, test_name in enumerate(names):
+        if 'background' in test_name:
+            color_func = color_bg_edges
+        elif 'frame_edge' in test_name:
+            color_func = color_frame_edges
+
+        instrumented_assertion(i, test_name)

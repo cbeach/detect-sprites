@@ -129,8 +129,9 @@ def unsupervised_sprite_finder(graph, sprites, indirect, possible_sprites=None):
     sprites = sprites[indirect]
     possible_sprites = [] if possible_sprites is None else possible_sprites
     new_possible_sprites = []
-    for graphlet in graph.subgraphs():
+    for i, graphlet in enumerate(graph.subgraphs()):
         sprite = graphlet.to_image(border=0)
+        print('sprite.shape', sprite.shape)
         if sprite.shape[0] * sprite.shape[1] > 48 ** 2 or graphlet.touches_edge():
             continue
 
@@ -142,6 +143,7 @@ def unsupervised_sprite_finder(graph, sprites, indirect, possible_sprites=None):
 
         if query is True:
             new_possible_sprites.append(FrameGraph(sprite, bg_color=graph.bg_color, indirect=indirect, ds=ds))
+            cv2.imwrite(f'./temp/{i}.png', new_possible_sprites[-1].to_image())
 
     return sprites, possible_sprites, new_possible_sprites
 
@@ -151,7 +153,7 @@ def mine(play_number, game='SuperMarioBros-Nes'):
 
     game_dir = f'./sprites/sprites/{game}'
     ensure_dir(game_dir)
-    sprites = load_sprites(game_dir, game)
+    sprites = load_sprites(game_dir, game, ds=ds)
 
     #for i, frame in enumerate(random.choices(play_through, k=2)):
     for i, frame in enumerate(play_through[:1]):
@@ -170,7 +172,7 @@ def find(play_number, game='SuperMarioBros-Nes', sample=None, randomize=False, s
 
     game_dir = f'./sprites/sprites/{game}'
     ensure_dir(game_dir)
-    sprites = load_sprites(game_dir, game)
+    sprites = load_sprites(game_dir, game, ds=ds)
     if supervised is True:
         not_sprites = []
     else:
@@ -202,15 +204,15 @@ def find(play_number, game='SuperMarioBros-Nes', sample=None, randomize=False, s
             print('number of unique possible sprites:', len(us))
             ensure_dir(f'{game_dir}/possible/')
             for j, sprite in enumerate([k for k in us]):
-                cv2.imwrite(f'{game_dir}/possible/{start + i}-{j}.png', sprite)
+                cv2.imwrite(f'{game_dir}/possible/{start + i}-{j}.png', sprite.to_image())
             possible_sprites.extend(new_possible_sprites)
 
     if supervised is True:
         us = unique_sprites(sprites[True] + sprites[False])
         print('number of unique sprites:', len(us))
         for i, sprite in enumerate([j for j in us]):
-            show_image(sprite, scale=8.0)
-            cv2.imwrite(f'{game_dir}/{i}.png', sprite)
+            show_image(sprite.to_image(), scale=8.0)
+            cv2.imwrite(f'{game_dir}/{i}.png', sprite.to_image())
 
 def cull(play_number, game='SuperMarioBros-Nes', sample=None, randomize=False, start=0, stop=None):
     play_through_data = migrate_play_through(get_playthrough(play_number, game), play_number, game)
@@ -220,7 +222,7 @@ def cull(play_number, game='SuperMarioBros-Nes', sample=None, randomize=False, s
 
     game_dir = f'./sprites/sprites/{game}'
     ensure_dir(game_dir)
-    sprites = load_sprites(game_dir, game)
+    sprites = load_sprites(game_dir, game, ds=ds)
     not_sprites = []
     if randomize is True:
         play_through = random.shuffle(range(play_through.shape[0]))
@@ -255,23 +257,21 @@ def cull(play_number, game='SuperMarioBros-Nes', sample=None, randomize=False, s
                 )
             )
 
-        #try:
-        #    d_img = find_and_cull(dgraph, sprites[False])
-        #except Exception as err:
-        #    # ['error', 'stack_trace', 'frame_number', 'indirect', 'frame']
-        #    err_tb = tb.format_exc()
-        #    print('------------------------- err_tb -------------------------')
-        #    print(f'frame: {index}')
-        #    print(err_tb)
-        #    print('----------------------------------------------------------')
-        #    print()
-        #    errors.append(
-        #        CullExceptionBundle(
-        #            err, err_tb, i, False, dgraph.raw_frame
-        #        )
-        #    )
-        show_image(i_img, scale=3)
-        return
+        try:
+            d_img = find_and_cull(dgraph, sprites[False])
+        except Exception as err:
+            # ['error', 'stack_trace', 'frame_number', 'indirect', 'frame']
+            err_tb = tb.format_exc()
+            print('------------------------- err_tb -------------------------')
+            print(f'frame: {index}')
+            print(err_tb)
+            print('----------------------------------------------------------')
+            print()
+            errors.append(
+                CullExceptionBundle(
+                    err, err_tb, i, False, dgraph.raw_frame
+                )
+            )
         end = time.time()
         commulative_time += end - start
         print(f'frame {i}: {end - start}, {commulative_time}')
@@ -304,7 +304,7 @@ def mark_culled_images(play_number):
 def show_sprites():
     game='SuperMarioBros-Nes'
     game_dir = f'./sprites/sprites/{game}'
-    sprites = load_sprites(game_dir, game)[True]
+    sprites = load_sprites(game_dir, game, ds=ds)[True]
     show_images([s.raw_frame for s in sprites], scale=8)
 
 def main():
@@ -313,8 +313,8 @@ def main():
     play_number = 1000
     #play_through_data = migrate_play_through(get_playthrough(play_number, game), play_number, game)
     #raw = play_through_data['raw']
-    cull(play_number, game, start=13, stop=14)
-    #find(play_number, game, start=1492, stop=1493, supervised=True)
+    #cull(play_number, game)
+    find(play_number, game, start=0, stop=10, supervised=False)
 
 if __name__ == '__main__':
     main()
