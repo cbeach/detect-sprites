@@ -213,12 +213,12 @@ def find_and_cull(graph, sprites):
 
 def confirm_sprites(src_dir, dest_dir):
     PossibleSprite = namedtuple('Sprite', ['path', 'img'])
-    sprite_count = len([glob(f'{dest_dir}/*.png')])
+    sprite_count = len(list(glob(f'{dest_dir}/*.png')))
     possible_sprites = [PossibleSprite(path=path, img=cv2.imread(path, cv2.IMREAD_UNCHANGED))
                         for path in glob(f'{src_dir}/*.png')]
     normed = [tuple(normalize_image(ps.img).flatten()) for ps in possible_sprites]
     unique_possible_sprites = {n: sprite for n, sprite in zip(normed, possible_sprites)}.values()
-
+    print(len(unique_possible_sprites))
     for i, ps in enumerate(unique_possible_sprites):
         sx, sy, sd = ps.img.shape
         scale = 720 // max((sx, sy))
@@ -229,16 +229,19 @@ def confirm_sprites(src_dir, dest_dir):
                     ps.img[x][y][1] = 92
                     ps.img[x][y][2] = 0
 
-        print(i, ps.img.shape)
+        print(f'{i} of {len(unique_possible_sprites)}: shape: {ps.img.shape}')
         resp = show_image(ps.img, scale=scale)
         if resp == ord('y') or resp == ord('Y'):
             cv2.imwrite(f'{dest_dir}/{sprite_count + i}.png', ps.img)
-            continue
             os.remove(ps.path)
         elif resp == ord('n') or resp == ord('N'):
-            continue
             os.remove(ps.path)
         elif resp == 27:  # ESC key
             break
         else:
             continue
+    for ps in possible_sprites:
+        try:
+            os.remove(ps.path)
+        except FileNotFoundError as err:
+            print(f'file not found: {ps.path}')

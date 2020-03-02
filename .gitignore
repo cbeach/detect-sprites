@@ -32,7 +32,6 @@ __pycache__/
 .env
 .Python
 env/
-bin/
 build/*.jar
 develop-eggs/
 dist/
@@ -95,7 +94,6 @@ __pycache__/
 .env
 .Python
 env/
-bin/
 build/
 develop-eggs/
 dist/
@@ -164,3 +162,7 @@ sprites/test/failed-tests
 temp
 temp.*
 *.npz
+1492-2.png
+17-1.png
+17-2.png
+little_mario_run-3.png

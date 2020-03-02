@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+
+import argparse
+from os.path import join, dirname, realpath
+import sys
+
+PROJECT_ROOT = join(dirname(realpath(__file__)), '../')
+sys.path.append(PROJECT_ROOT)
+
+from sprites.find import confirm_sprites
+
+game = 'SuperMarioBros-Nes'
+
+confirm_sprites(f'{PROJECT_ROOT}/sprites/sprites/{game}/possible', f'{PROJECT_ROOT}/sprites/sprites/{game}')
+
+

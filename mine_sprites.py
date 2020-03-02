@@ -157,7 +157,7 @@ def mine(play_number, game='SuperMarioBros-Nes'):
 
     #for i, frame in enumerate(random.choices(play_through, k=2)):
     for i, frame in enumerate(play_through[:1]):
-        ret_val = process_frame(frame, play_number=play_number, frame_number=i, **params)
+        ret_val = process_frame(frame, play_number=play_number, frame_number=i)
 
     for j, sprite in enumerate([j for j in ret_val['sprites'][True]]):
         show_image(sprite.raw_frame, scale=8.0)
@@ -314,7 +314,7 @@ def main():
     #play_through_data = migrate_play_through(get_playthrough(play_number, game), play_number, game)
     #raw = play_through_data['raw']
     #cull(play_number, game)
-    find(play_number, game, start=0, stop=10, supervised=False)
+    find(play_number, game, start=653, supervised=False)
 
 if __name__ == '__main__':
     main()
