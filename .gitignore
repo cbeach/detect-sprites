@@ -151,7 +151,8 @@ docs/_build/
 *~
 *.sw[mnop]
 output/
-*.png
+sprites/sprites/SuperMarioBros-Nes/possible
+./*.png
 sprites/sprite_locations.json
 sprites/db/SuperMarioBros-Nes
 sprites/db/*.gz

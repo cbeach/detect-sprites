@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+from collections import namedtuple
 from glob import glob
 import itertools
 import os
@@ -211,17 +212,32 @@ def find_and_cull(graph, sprites):
     return image
 
 def confirm_sprites(src_dir, dest_dir):
+    PossibleSprite = namedtuple('Sprite', ['path', 'img'])
     sprite_count = len([glob(f'{dest_dir}/*.png')])
-    for i, filename in enumerate(glob(f'{src_dir}/*.png')):
-        img = cv2.imread(filename, cv2.IMREAD_UNCHANGED)
-        sx, sy, sd = img.shape
-        scale = 720 / max((sx, sy))
-        resp = show_image(img, scale=scale)
+    possible_sprites = [PossibleSprite(path=path, img=cv2.imread(path, cv2.IMREAD_UNCHANGED))
+                        for path in glob(f'{src_dir}/*.png')]
+    normed = [tuple(normalize_image(ps.img).flatten()) for ps in possible_sprites]
+    unique_possible_sprites = {n: sprite for n, sprite in zip(normed, possible_sprites)}.values()
+
+    for i, ps in enumerate(unique_possible_sprites):
+        sx, sy, sd = ps.img.shape
+        scale = 720 // max((sx, sy))
+        for x, row in enumerate(ps.img):
+            for y, pixel in enumerate(row):
+                if ps.img[x][y][3] == 0:
+                    ps.img[x][y][0] = 0
+                    ps.img[x][y][1] = 92
+                    ps.img[x][y][2] = 0
+
+        print(i, ps.img.shape)
+        resp = show_image(ps.img, scale=scale)
         if resp == ord('y') or resp == ord('Y'):
-            cv2.imwrite(f'{dest_dir}/{sprite_count + i}.png', img)
-            #os.remove(filename)
+            cv2.imwrite(f'{dest_dir}/{sprite_count + i}.png', ps.img)
+            continue
+            os.remove(ps.path)
         elif resp == ord('n') or resp == ord('N'):
-            #os.remove(filename)
+            continue
+            os.remove(ps.path)
         elif resp == 27:  # ESC key
             break
         else:
