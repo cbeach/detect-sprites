@@ -50,7 +50,7 @@ def log_error(message, **kwargs):
 def log_fatal(message, **kwargs):
         log_message('FATAL', message, **kwargs)
 
-def process_frame(frame, play_number, frame_number, sprites=None, **kwargs):
+def process_frame(frame, play_number, frame_number, sprites=None, game='SuperMarioBros-Nes', **kwargs):
     cont = True
     while cont:
         old_sprite_counts = {
@@ -58,8 +58,8 @@ def process_frame(frame, play_number, frame_number, sprites=None, **kwargs):
             False: len(sprites[False]),
         }
 
-        igraph = FrameGraph(frame, game='SuperMarioBros-Nes', play_num=play_number, frame_num=frame_number, indirect=True, ds=ds)
-        dgraph = FrameGraph(frame, game='SuperMarioBros-Nes', play_num=play_number, frame_num=frame_number, indirect=False, ds=ds)
+        igraph = FrameGraph(frame, game=game, play_num=play_number, frame_num=frame_number, indirect=True, ds=ds)
+        dgraph = FrameGraph(frame, game=game, play_num=play_number, frame_num=frame_number, indirect=False, ds=ds)
         old_i_img = igraph.raw_frame
         old_d_img = dgraph.raw_frame
 
@@ -164,11 +164,10 @@ def mine(play_number, game='SuperMarioBros-Nes'):
         cv2.imwrite(f'{game_dir}/{j}.png', sprite.raw_frame)
 
 def find(play_number, game='SuperMarioBros-Nes', sample=None, randomize=False, supervised=True, start=0, stop=None):
-    #play_through_data = migrate_play_through(get_playthrough(play_number, game), play_number, game)
-    #play_through = play_through_data['partial'] if 'partial' in play_through_data else play_through_data['raw']
-    play_through_data = np.load('./culled.npz')
-    play_through = play_through_data['culled']
-
+    play_through_data = migrate_play_through(get_playthrough(play_number, game), play_number, game)
+    play_through = play_through_data['partial'] if 'partial' in play_through_data else play_through_data['raw']
+    #play_through_data = np.load('./culled.npz')
+    #play_through = play_through_data['culled']
 
     game_dir = f'./sprites/sprites/{game}'
     ensure_dir(game_dir)
@@ -184,8 +183,8 @@ def find(play_number, game='SuperMarioBros-Nes', sample=None, randomize=False, s
     stop  = sample if stop  is None else stop
     for i, frame in enumerate(play_through[start:stop]):
         parse_start = time.time()
-        igraph = FrameGraph(frame, game='SuperMarioBros-Nes', play_num=play_number, bg_color=frame[0][0], frame_num=i, indirect=True, ds=ds)
-        dgraph = FrameGraph(frame, game='SuperMarioBros-Nes', play_num=play_number, bg_color=frame[0][0], frame_num=i, indirect=False, ds=ds)
+        igraph = FrameGraph(frame, game=game, play_num=play_number, bg_color=frame[0][0], frame_num=i, indirect=True, ds=ds)
+        dgraph = FrameGraph(frame, game=game, play_num=play_number, bg_color=frame[0][0], frame_num=i, indirect=False, ds=ds)
         parse_end = time.time()
 
         try:
@@ -239,8 +238,8 @@ def cull(play_number, game='SuperMarioBros-Nes', sample=None, randomize=False, s
         frame = frame if randomize is False else play_through[frame]
 
         start = time.time()
-        igraph = FrameGraph(frame, game='SuperMarioBros-Nes', play_num=play_number, bg_color=frame[0][0], frame_num=i, indirect=True, ds=ds)
-        dgraph = FrameGraph(frame, game='SuperMarioBros-Nes', play_num=play_number, bg_color=frame[0][0], frame_num=i, indirect=False, ds=ds)
+        igraph = FrameGraph(frame, game=game, play_num=play_number, bg_color=frame[0][0], frame_num=i, indirect=True, ds=ds)
+        dgraph = FrameGraph(frame, game=game, play_num=play_number, bg_color=frame[0][0], frame_num=i, indirect=False, ds=ds)
 
         try:
             i_img = find_and_cull(igraph, sprites[True])
@@ -308,13 +307,15 @@ def show_sprites():
     show_images([s.raw_frame for s in sprites], scale=8)
 
 def main():
-    sprite_dir = './sprites/sprites/SuperMarioBros-Nes'
-    game = 'SuperMarioBros-Nes'
-    play_number = 1000
+    #game = 'SuperMarioBros-Nes'
+    #play_number = 1000
+    game = 'QBert-Nes'
+    play_number = 3928
+    sprite_dir = f'./sprites/sprites/{game}'
     #play_through_data = migrate_play_through(get_playthrough(play_number, game), play_number, game)
     #raw = play_through_data['raw']
     #cull(play_number, game)
-    find(play_number, game, start=653, supervised=False)
+    find(play_number, game, supervised=False)
 
 if __name__ == '__main__':
     main()

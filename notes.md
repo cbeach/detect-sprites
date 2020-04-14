@@ -1,5 +1,6 @@
 # EOD
 
+Working on the sprite set. Specificaly matching nodes between a graph and a sprite
     
 
 # Thoughts

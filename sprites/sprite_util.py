@@ -3,10 +3,14 @@ from glob import glob
 import gzip
 import itertools
 import json
+import math
 import os
 import pickle
+from queue import Queue
+from queue import LifoQueue as Stack
 import random
 import time
+from typing import Callable, List, Dict, Any, Tuple
 
 from numba import jit
 import numpy as np
@@ -16,6 +20,12 @@ DATA_DIR = os.environ['DATA_DIR'] if 'DATA_DIR' in os.environ else '/home/mcsmas
 PLAY_DIR = f'{DATA_DIR}/game_playing/play_data/'
 PNG_TMPL = '{DATA_DIR}/game_playing/play_data/{game}/frames/{play_number}-{frame_number}.png'
 PICKLE_DIR = './db/SuperMarioBros-Nes/pickle'
+
+@jit(nopython=True)
+def flattened_neighboring_points(x, y, arr, indirect=True):
+    nbrs = neighboring_points(x, y, arr, indirect)
+    sx, sy, _ = arr.shape
+    return [sx * coord[0] + coord[1] for coord in nbrs]
 
 @jit(nopython=True)
 def neighboring_points(x, y, arr, indirect=True):
@@ -30,8 +40,10 @@ def neighboring_points(x, y, arr, indirect=True):
 
     if x > 0:
         neighbors.append((x-1, y))
+
     #if x > 0 and np.array_equal(frame[x][y], frame[x][y]):
     #    neighbors.append((x, y))
+
     if x < max_x - 1:
         neighbors.append((x+1, y))
 
@@ -156,6 +168,8 @@ def graph_encoder(frame):
 
 def add_rule(img):
     n_img = np.zeros((img.shape[0] + 1, img.shape[1] + 1, img.shape[2]))
+    black = np.zeros((4), dtype=np.uint8)
+    white = np.full((4), 255, dtype=np.uint8)
     column, row = np.array([black, white] * math.ceil(n_img.shape[0] / 2), dtype='uint8'), np.array([black, white] * math.ceil(n_img.shape[1] / 2), dtype='uint8')
     n_img[1:, 1:] = img
     n_img[0, :] = row
@@ -198,7 +212,7 @@ def migrate_play_through(play_through_data, play_number, game):
     return play_through_data
 
 def compare_images(img1, img2, sep=10, sep_color=(255, 255, 255), scale=1.0):
-    return np.hstack((img1, np.array([[sep_color] * sep] * ig.shape[2]), img2))
+    return np.hstack((img1, np.array([[sep_color] * sep] * img1.shape[2]), img2))
 
 def palettize_image(image, palette):
     p_index = {c:i for i, c in enumerate(palette)}

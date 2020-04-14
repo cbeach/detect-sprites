@@ -7,7 +7,7 @@ import sys
 import cv2
 import numpy as np
 
-from .sprite_util import neighboring_points, conjugate_numbers
+from .sprite_util import flattened_neighboring_points, neighboring_points, conjugate_numbers
 from .db.models import EdgeM, NodeM, PatchM
 from .db.data_store import DataStore
 from .db.data_types import BoundingBox, Color, FrameID, Mask, encode_frame_id
@@ -73,6 +73,9 @@ class Node:
 
     def touches_edge(self):
         return self.frame_edge
+
+    def touches_bg(self):
+        return self.bg_edge
 
     def mark_as_bg_edge(self):
         self.bg_edge = True
@@ -512,50 +515,4 @@ class _patch:
 
 
 Node.set_comparison_context()
-
-def main():
-    r = np.array([0, 0, 255], dtype=np.uint8)
-    g = np.array([0, 255, 0], dtype=np.uint8)
-    b = np.array([255, 0, 0], dtype=np.uint8)
-    c = np.array([255, 255, 0], dtype=np.uint8)
-    m = np.array([255, 0, 255], dtype=np.uint8)
-
-    w = np.array([255, 255, 255], dtype=np.uint8)
-    a = np.array([128, 128, 128], dtype=np.uint8)
-
-    ti1 = np.array([
-        [r, r, r, r, r, g, g, g, g, g],
-        [r, r, r, r, r, g, g, g, g, g],
-        [r, r, r, r, r, g, g, g, g, g],
-        [r, r, r, r, r, g, g, g, g, g],
-        [r, r, r, r, r, c, g, g, g, g],
-        [b, b, b, b, r, c, c, c, c, c],
-        [b, b, b, b, b, c, c, c, c, c],
-        [b, b, b, b, b, c, c, c, c, c],
-        [b, b, b, b, b, c, c, c, c, c],
-        [b, b, b, b, b, c, c, c, c, c],
-    ], dtype='uint8')
-
-
-    patches = {}
-    patches['r'] = Patch(ti1, 0, 0, mask=np.zeros(ti1.shape[:-1]))
-    patches['g'] = Patch(ti1, 0, 5, mask=np.zeros(ti1.shape[:-1]))
-    patches['b'] = Patch(ti1, 5, 0, mask=np.zeros(ti1.shape[:-1]))
-    patches['c'] = Patch(ti1, 5, 5, mask=np.zeros(ti1.shape[:-1]))
-    return patches
-
-if __name__ == '__main__':
-    ds = DataStore('temp.db', games_path='./games.json')
-    r = np.array([0, 0, 255], dtype=np.uint8)
-    ti1 = np.array([
-        [r, r],
-        [r, r],
-    ], dtype='uint8')
-    j = main()
-    p = Patch(ti1, 0, 0, mask=np.zeros(ti1.shape[:-1]))
-    p.store()
-    sess = p.ds.Session()
-    for i in sess.query(PatchM).all():
-        print(i)
-    print(len(p._PATCHES), p._PATCHES)
 

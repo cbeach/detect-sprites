@@ -174,7 +174,7 @@ def cull_sprites(graph, sprite, coords, image):
         s_img = sprite.raw_frame.copy()[nlx:nrx, nly:nry, :]
         for x, row in enumerate(image[bblx:bbrx]):
             for y, pix in enumerate(row[bbly:bbry]):
-                if sprite.alpha_chan[x][y] > 0 and np.array_equal(pix, s_img[x][y]):
+                if sprite.alpha_chan[x][y] > 0: # and np.array_equal(pix, s_img[x][y]):
                     #print(x, y)
                     pix[0] = graph.bg_color[0]
                     pix[1] = graph.bg_color[1]

@@ -1,0 +1,37 @@
+#! /usr/bin/env python3
+from glob import glob
+from os.path import join, dirname, realpath
+import sys
+
+import cv2
+import numpy as np
+
+PROJECT_ROOT = join(dirname(realpath(__file__)), '../')
+sys.path.append(PROJECT_ROOT)
+from sprites.sprite_util import show_image, show_images
+
+# 40 == 51
+# 31 == 48
+sprites = {tuple(cv2.imread(path, flags=cv2.IMREAD_UNCHANGED).flatten()): i for i, path in enumerate(glob(PROJECT_ROOT + 'sprites/sprites/SuperMarioBros-Nes/*.png'))}
+#print(len(sprites))
+for i in glob(PROJECT_ROOT + 'sprites/sprites/SuperMarioBros-Nes/*.png'):
+    print(i)
+    img = cv2.imread(i, flags=cv2.IMREAD_UNCHANGED)
+    show_image(img, scale=16)
+
+base_path = '/home/mcsmash/dev/deep_thought/data_tools/preprocessing/detect-sprites/bin/../sprites/sprites/SuperMarioBros-Nes/'
+
+a = cv2.imread(f'{base_path}/40.png' , flags=cv2.IMREAD_UNCHANGED)
+b = cv2.imread(f'{base_path}/51.png' , flags=cv2.IMREAD_UNCHANGED)
+c = cv2.imread(f'{base_path}/33.png' , flags=cv2.IMREAD_UNCHANGED)
+d = cv2.imread(f'{base_path}/52.png' , flags=cv2.IMREAD_UNCHANGED)
+
+show_images((c, d), scale=16)
+
+sys.exit(0)
+
+#sprites = [cv2.imread(path, flags=cv2.IMREAD_UNCHANGED) for path in glob(PROJECT_ROOT + 'sprites/sprites/SuperMarioBros-Nes/*.png')]
+#print(len(sprites))
+#for s in sprites:
+#    print(s.shape)
+
