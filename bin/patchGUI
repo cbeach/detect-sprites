@@ -1,0 +1,173 @@
+#!/usr/bin/env python
+"""
+This simple example is used for the line-by-line tutorial
+that comes with pygame. It is based on a 'popular' web banner.
+Note there are comments here, but for the full explanation,
+follow along in the tutorial.
+"""
+#! /usr/bin/env python
+
+import os
+from collections import defaultdict, namedtuple
+from enum import Enum
+from os.path import join, dirname, realpath
+from recordclass import recordclass
+import sys
+
+import cv2
+import numpy as np
+import pygame
+from pygame.locals import *
+from pygame.compat import geterror
+
+PROJECT_ROOT = join(dirname(realpath(__file__)), '../')
+sys.path.append(PROJECT_ROOT)
+
+from sprites.sprite_util import get_playthrough, show_image
+from sprites.patch_graph import FrameGraph
+from sprites.db.data_store import DataStore
+from sprites.gui.fsa import NavigationState, NavigationAutomata
+from sprites.gui.events import event_router, key_map, mod_map, mouse_button_map
+
+if not pygame.font:
+    print("Warning, fonts disabled")
+if not pygame.mixer:
+    print("Warning, sound disabled")
+
+ds = DataStore(f'{PROJECT_ROOT}/sprites/db/sqlite.db', games_path='./sprites/games.json', echo=False)
+
+def transform_img(img, scale):
+    return np.rot90(
+        cv2.resize(cv2.flip(img, 1), (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST))
+def cv2_to_pygame_image(img, format):
+    return pygame.image.frombuffer(img.tostring(), img.shape[1::-1], 'RGBA')
+def parse_frame(img, game):
+    return {
+        True: FrameGraph(img, game=game, indirect=True, ds=ds),
+        False: FrameGraph(img, game=game, indirect=False, ds=ds),
+    }
+def get_frame_coords(x, y, scale):
+    return x // scale, y // scale
+def highlight_patch(surface, fg: FrameGraph, position, ntype, scale):
+    x, y = position
+    node = fg.pix_index[position]
+    mask = node.get_mask()
+    sx, sy = mask.shape
+    tlc = node.bounding_box[0]
+    img = node.fill_patch(np.zeros((sx, sy, 4), dtype=np.ubyte), color=(255, 255, 255))
+    img[:, :, 3] = mask * 128
+    pgimg = pygame.image.frombuffer(
+        cv2.resize(img, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST).tostring(),
+        (sy * scale, sx * scale),
+        'RGBA')
+    surface.blit(pgimg, (tlc[1], tlc[0]))
+    return surface
+def draw_cursor(background_surface, coord, scale):
+    x, y = coord
+    cursor = pygame.Surface((1 * scale, 1 * scale))
+    cursor.fill((255, 255, 255))
+    cursor.set_alpha(((pygame.time.get_ticks() // 1000) % 2) * 255)
+    background_surface.blit(cursor, (x, y))
+    return background_surface
+def draw_surface(play_through, frame_number, cursor_position, scale, fgs, ntype):
+    raw_img = transform_img(play_through[frame_number], scale)
+    surface = pygame.surfarray.make_surface(raw_img[:, :, :3])
+    #surface_with_highlighted_patch = highlight_patch(surface, fgs[ntype], cursor_position, ntype, scale)
+    #surface_with_cursor = draw_cursor(surface_with_highlighted_patch, cursor_position, scale=scale)
+    surface_with_cursor = draw_cursor(surface, cursor_position, scale=scale)
+    return surface_with_cursor
+
+GlobalState = recordclass('GlobalState', ['game', 'play_number', 'frame_number', 'playthrough', 'frame_graphs', 'scale',
+                                         'window', 'selection', 'nav_state', 'input_state', 'ticks'])
+
+ModeState = recordclass('ModeState', ['state', 'mode'])
+
+def main():
+    """this function is called when the program starts.
+       it initializes everything it needs, then runs in
+       a loop until the function returns."""
+    # Initialize Everything
+    game = 'QBert-Nes'
+    play_number = 3928
+    frame_number = 0
+    ntype = True
+    scale = 3
+    border = 4
+    pt = get_playthrough(play_number, game=game)['raw']
+    h, w = pt[0].shape[:2]
+
+    nav_state = NavigationState(state='start', cursor_pos=recordclass('cursor_pos', ['x', 'y'])(x=0, y=0))
+    state = GlobalState(
+        game=game, play_number=play_number, frame_number=frame_number, playthrough=pt,
+        frame_graphs=parse_frame(pt[frame_number], game), scale=scale, window=(None, None),
+        selection=None, nav_state=nav_state, input_state=input_state, ticks=0
+    )
+    nav_fsa = NavigationAutomata(nav_state)
+    automamatons = namedtuple('Automatons', ['nav'])(nav=NavigationAutomata(nav_state))
+
+    pygame.init()
+    command_height = 30
+    status_width = 100
+    frame_width = w * scale
+    frame_height = h * scale
+    display_width = frame_width + status_width + border * 3
+    display_height = frame_height + command_height + border * 3
+    command_width = display_width - border * 2
+    status_height = display_height - border * 3 - command_height
+
+    screen = pygame.display.set_mode((display_width, display_height))
+    pygame.display.set_caption('Sprite GUI')
+    pygame.mouse.set_visible(1)
+
+    # Create The Backgound
+    background = pygame.Surface(screen.get_size())
+    background = background.convert()
+    background.fill((32, 32, 32))
+    # Put Text On The Background, Centered
+    #if pygame.font:
+    #    font = pygame.font.Font(None, 36)
+    #    text = font.render("Pummel The Chimp, And Win $$$", 1, (10, 10, 10))
+    #    textpos = text.get_rect(centerx=background.get_width() / 2)
+    #    background.blit(text, textpos)
+
+    # Display The Background
+    screen.blit(background, (0, 0))
+    pygame.display.flip()
+
+    # Prepare Game Objects
+    clock = pygame.time.Clock()
+    fgs, going, img, raw_img, scaled_img, update = None, True, None, None, None, True
+    # Main Loop
+    while going:
+        clock.tick(60)
+        selection = []
+        if update is True:
+            fgs = parse_frame(pt[frame_number], game)
+            update = False
+
+        # Handle Input Events
+        for event in pygame.event.get():
+            if event.type == QUIT:
+                going = False
+            event_router(event, global_state=state, automatons=nav_fsa)
+
+        #print('cursor_pos 2', state.nav_state.cursor_pos)
+
+        frame_surface = draw_surface(pt, frame_number, nav_state.cursor_pos, scale, fgs, ntype)
+        screen.blit(frame_surface, (border - 1, border - 1))
+
+        command = pygame.Surface((command_width, command_height))
+        command.fill((0, 0, 0))
+        screen.blit(command, (border - 1, frame_height + border * 2 - 1))
+
+        status = pygame.Surface((status_width, status_height))
+        status.fill((0, 0, 0))
+        screen.blit(status, (frame_width + border * 2 - 1, border - 1))
+
+        pygame.display.flip()
+        state.ticks += 1
+
+    pygame.quit()
+
+if __name__ == "__main__":
+    main()

@@ -1,6 +1,7 @@
 from collections import namedtuple
 import json
 import random
+import sys
 import time
 import traceback as tb
 
@@ -276,9 +277,10 @@ def cull(play_number, game='SuperMarioBros-Nes', sample=None, randomize=False, s
         print(f'frame {i}: {end - start}, {commulative_time}')
 
         culled_frames.append(merge_images(i_img, d_img, bg_color=igraph.bg_color))
+        cv2.imwrite(f'./qbert/{i}.png', cv2.cvtColor(culled_frames[-1], cv2.COLOR_BGR2RGB))
     loop_end = time.time()
     print('total time:', loop_end - loop_start)
-    np.savez('culled.npz', raw=raw, culled=np.array(culled_frames, dtype=np.uint8), culled_markers=culled_markers)
+    np.savez(f'culled.{game}.npz', raw=raw, culled=np.array(culled_frames, dtype=np.uint8), culled_markers=culled_markers)
     if len(errors) > 0:
         ensure_dir('./logs')
 
@@ -312,10 +314,11 @@ def main():
     game = 'QBert-Nes'
     play_number = 3928
     sprite_dir = f'./sprites/sprites/{game}'
-    #play_through_data = migrate_play_through(get_playthrough(play_number, game), play_number, game)
+    play_through_data = migrate_play_through(get_playthrough(play_number, game), play_number, game)
+    sys.exit(0)
     #raw = play_through_data['raw']
     #cull(play_number, game)
-    find(play_number, game, supervised=False)
+    cull(play_number, game, sample=10)
 
 if __name__ == '__main__':
     main()

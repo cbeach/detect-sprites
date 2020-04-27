@@ -194,7 +194,7 @@ class Node:
         initial_hash = hash(self)
         for nbr in self.neighbors:
             nbr_hash = hash(nbr)
-            shifted = initial_hash << (len(bin(nrb_hash)) - 2)
+            shifted = initial_hash << (len(bin(nbr_hash)) - 2)
             initial_hash = initial_hash | nbr_hash
 
         self.my_neighborhood_hash = initial_hash

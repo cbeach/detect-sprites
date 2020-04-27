@@ -83,7 +83,7 @@ def get_playthrough(play_number, game='SuperMarioBros-Nes'):
     else:
         raise TypeError
 
-def save_partially_processed_playthrough(raw, play_number, partial=None, game='SuperMarioBros-Nes'):
+def save_partially_processed_playthrough(raw, play_number, game, partial=None):
     if partial is not None:
         np.savez(f'{PLAY_DIR}/{game}/{play_number}/frames.npz', raw=raw, in_progress=partial)
     else:
@@ -192,21 +192,21 @@ def migrate_play_through(play_through_data, play_number, game):
         start = time.time()
         play_through_data['raw'] = play_through_data['arr_0']
         del play_through_data['arr_0']
-        save_partially_processed_playthrough(play_through_data['raw'], play_number)
+        save_partially_processed_playthrough(play_through_data['raw'], play_number, game=game)
         print(f'finished in {time.time() - start}')
 
     if np.array_equal(play_through_data['raw'][0][0][0], np.array([88, 148, 248], dtype='uint8')):
         print('migrating play through: color encoding')
         start = time.time()
         play_through_data['raw'] = np.array([cv2.cvtColor(frame, cv2.COLOR_RGB2BGRA) for frame in play_through_data['raw']], dtype=np.uint8)
-        save_partially_processed_playthrough(play_through_data['raw'], play_number)
+        save_partially_processed_playthrough(play_through_data['raw'], play_number, game=game)
         print(f'finished in {time.time() - start}')
 
     if play_through_data['raw'].shape[-1] == 3:
         print('migrating play through: adding alpha channel')
         start = time.time()
-        play_through_data['raw'] = [cv2.cvtColor(frame, cv2.COLOR_BGR2BGRA) for frame in play_through_data['raw']]
-        save_partially_processed_playthrough(play_through_data['raw'], play_number)
+        play_through_data['raw'] = np.array([cv2.cvtColor(frame, cv2.COLOR_BGR2BGRA) for frame in play_through_data['raw']])
+        save_partially_processed_playthrough(play_through_data['raw'], play_number, game=game)
         print(f'finished in {time.time() - start}')
 
     return play_through_data
