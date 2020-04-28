@@ -28,7 +28,7 @@ def flattened_neighboring_points(x, y, arr, indirect=True):
     return [sx * coord[0] + coord[1] for coord in nbrs]
 
 @jit(nopython=True)
-def neighboring_points(x, y, arr, indirect=True):
+def neighboring_points(x: int, y: int, arr: np.array, indirect: bool=True):
     max_x, max_y = arr.shape[:2]
     neighbors = []
     if x > 0 and y > 0 and indirect is True:
