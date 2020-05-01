@@ -157,7 +157,7 @@ def fit_bounding_box(img, bb):
     bblx = 0 if lx < 0 else lx
     bbrx = img.shape[0] if rx >= img.shape[0] else rx
     bbly = 0 if ly < 0 else ly
-    bbry = img.shape[1] if rx >= img.shape[1] else ry
+    bbry = img.shape[1] if ry >= img.shape[1] else ry
     return bblx, bbly, bbrx, bbry
 
 def cull_sprites(graph, sprite, coords, image):
