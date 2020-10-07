@@ -1,7 +1,9 @@
+from collections import namedtuple
 import math
 from functools import partial
 from glob import glob
 import multiprocessing as mp
+import os
 import random
 import sys
 import time
@@ -9,16 +11,59 @@ import time
 import cv2
 from numba import jit
 import numpy as np
+from recordclass import RecordClass
 from scipy.spatial.ckdtree import cKDTree
 from sklearn import preprocessing
 from sklearn.metrics import mean_squared_error
 
 from sprites.sprite_util import neighboring_points, get_playthrough, show_image, show_images
 from sprites.find import fit_bounding_box
+from sprites.patch_graph import FrameGraph
+
+# features: [(first_pixel_x, first_pixel_y, area, bounding_box_x1, bounding_box_y1, w, h)]
+FeatureSignature = namedtuple('FeatureSignature', ['first_x', 'first_y', 'area', 'bbx1', 'bby1', 'w', 'h', 'mag', 'uv'])
 
 np.set_printoptions(threshold=10000000, linewidth=1000000000)
 shrink = True
 
+@jit(nopython=True)
+def patch_hash(patch: np.array):
+    sx, sy = list(patch.shape[:2])
+    area = sx * sy
+    patch_hash = np.zeros((math.ceil(float(area + 16) / 64.0)), dtype=np.int64)
+
+    sx_hash = np.zeros((8), dtype=np.int64)
+    for i in range(8):
+        sx_hash[i] = 1 if 0b10000000 & sx else 0
+        sx = sx << 1
+
+    sy_hash = np.zeros((8), dtype=np.int64)
+    for i in range(8):
+        sy_hash[i] = 1 if 0b10000000 & sy else 0
+        sy = sy << 1
+
+    p64 = np.concatenate((patch.astype(np.int64).flatten(), sx_hash, sy_hash))
+    patch_hash_index = 0
+    mini_hash = 1
+    first_iteration = True
+    for i, pix in enumerate(p64.flatten()):
+        mini_hash = mini_hash << 1
+        if pix:
+            mini_hash += 1
+
+        if first_iteration is True and i == 62:
+            patch_hash[patch_hash_index] = mini_hash
+            mini_hash = 0
+            patch_hash_index = i // 64
+            first_iteration = False
+        elif patch_hash_index != i // 64:
+            patch_hash[patch_hash_index] = mini_hash
+            mini_hash = 0
+            patch_hash_index = i // 64
+
+    patch_hash[patch_hash_index] = mini_hash
+
+    return patch_hash
 @jit(nopython=True)
 def quick_parse(img: np.array, ntype: bool, shrink_mask: bool = True):
     if img.shape[-1] == 4:
@@ -35,7 +80,6 @@ def quick_parse(img: np.array, ntype: bool, shrink_mask: bool = True):
         for y in range(len(img[x])):
             if visited[x][y] == True:
                 continue
-
             seed = (x, y)
             patch = [(x, y)]  # Hint for numba's type inference system
             stack = [patch.pop()]
@@ -44,12 +88,10 @@ def quick_parse(img: np.array, ntype: bool, shrink_mask: bool = True):
                 current_pixel = stack.pop()
                 patch.append(current_pixel)
                 nbr_coords = neighboring_points(current_pixel[0], current_pixel[1], img, ntype)
-
                 for i, j in nbr_coords:
                     if visited[i][j] == False and np.array_equal(img[i][j], img[x][y]):
                         stack.append((i, j))
                         visited[i][j] = True
-
             patch_arr = np.array(patch, dtype=np.ubyte)
             x_arr = patch_arr[:, 0]
             y_arr = patch_arr[:, 1]
@@ -80,16 +122,17 @@ def quick_parse(img: np.array, ntype: bool, shrink_mask: bool = True):
                 mask = mask[:w, :h].copy()
             else:
                 mask = mask.copy()
+            patch_hash(mask)
             masks.append(mask)
             patches.append((seed[0], seed[1], len(patch), x1, y1, w, h))
 
     return np.array(patches, dtype=np.uint32), masks
 def par(pt, img_count, ntype, start=0, pool=None):
-    p_func = partial(quick_parse, ntype=ntype)
+    p_func = partial(quick_parse, ntype=ntype, shrink_mask=True)
     if pool is None:
         pool = mp.Pool(8)
     return pool.map(p_func, pt[start:start+img_count])
-def ser(pt, img_count, ntype, start=0, pool=None):
+def ser(pt, img_count, ntype, start=0):
     patches = []
     masks = []
     for i, img in enumerate(pt[start:start+img_count]):
@@ -117,29 +160,42 @@ def color_mask(img, mask, color=(0, 255, 0)):
     for x, y in zip(*np.nonzero(mask)):
         img[x][y] = c
     return img
+def populate_features(feats, mags, uvs):
+    return [FeatureSignature(first_x=feats[i][0], first_y=feats[i][1], area=feats[i][2], bbx1=feats[i][3], bby1=feats[i][4],
+                             w=feats[i][5], h=feats[i][6], mag=mags[i], uv=uvs[i]) for i, _ in enumerate(feats)]
 def bench():
     game = 'SuperMarioBros-Nes'
     play_number = 1000
-    frame_number = 0
     ntype = False
+    pool = mp.Pool(8)
     total_time = 0
     sprites = [cv2.imread(f'./sprites/sprites/SuperMarioBros-Nes/{i}.png', cv2.IMREAD_UNCHANGED) for i in [0, 3, 35]]
-    parsed_sprites = [quick_parse(img, ntype=ntype, shrink_mask=shrink) for img in sprites]
-    sprite_clouds = [i[0] for i in parsed_sprites]
+    quick_parse(sprites[0], ntype=ntype, shrink_mask=shrink)
+    parsed_sprites = [f for f in par(sprites, img_count=len(sprites), ntype=ntype, pool=pool)]
+    sprite_full_features = np.array([i[0] for i in parsed_sprites])
     sprite_masks = [i[1] for i in parsed_sprites]
-    sprite_kdt = [cKDTree(data=cloud[:, :2]) for cloud in sprite_clouds]
+    #parsed_sprites = [quick_parse(img, ntype=ntype, shrink_mask=shrink) for img in sprites]
+    sprite_kdt = [cKDTree(data=cloud[:, :2]) for cloud in sprite_full_features]
 
-    mario_sprite, mario_cloud, mario_kdt = sprites[1], sprite_clouds[1], sprite_kdt[1]
-    mmag, muv = normalize_knn(sprite_kdt[1], mario_cloud[:, :2], k=8)
+    snorm = pool.starmap(partial(normalize_knn, k=8), zip(sprite_kdt, [sc[:, :2] for sc in sprite_full_features]))
+    smags, suvs = [i[0] for i in snorm], [i[1] for i in snorm]
+    sfeatures = []
+    for i in range(len(sprites)):
+        sfeatures.append(populate_features(sprite_full_features[i], smags[i], suvs[i]))
+
+    mario_sprite, mario_sprite_point_cloud, mario_kdt = sprites[1], sfeatures[1], sprite_kdt[1]
+    mmag, muv = normalize_knn(sprite_kdt[1], [i[:2] for i in mario_sprite_point_cloud], k=8)
 
     pt = get_playthrough(play_number, game=game)['raw']
-    img_count = 1
+    img_count = len(pt)
     sprites = [cv2.imread(f'./sprites/sprites/SuperMarioBros-Nes/{i}.png', cv2.IMREAD_UNCHANGED) for i in [0, 3, 35]]
+    # ensure quick_parse function is compiled
     quick_parse(sprites[1], ntype=False)
-    pool = mp.Pool(8)
     start = time.time()
     #features = [f[:, :2] for f in par(pt, img_count=img_count)]
-    full_features, masks = [f for f in par(pt, img_count=img_count, ntype=ntype, pool=pool)]
+    parsed_frames = [f for f in par(pt, img_count=img_count, ntype=ntype, pool=pool)]
+    full_features = [i[0] for i in parsed_frames]
+    masks = [i[1] for i in parsed_frames]
     features = [f[:, :2] for f in full_features]
     total_time += time.time() - start
     print('features', time.time() - start, 'average', float(time.time() - start) / float(img_count))
@@ -149,7 +205,8 @@ def bench():
     total_time += time.time() - start
     print('trees', time.time() - start, 'average', float(time.time() - start) / float(img_count))
     start = time.time()
-    tmag, tuv = pool.starmap(partial(normalize_knn, k=12), zip(trees, features))
+    norm = pool.starmap(partial(normalize_knn, k=12), zip(trees, features))
+    tmag, tuv = norm[0]
     #[normalize_knn(kdt, f, k=12) for kdt, f in zip(trees, features)]
     total_time += time.time() - start
     print('normalization', time.time() - start, 'average', float(time.time() - start) / float(img_count))
@@ -157,8 +214,14 @@ def bench():
 
     total_time += time.time() - start
     print('matching', time.time() - start, 'average', float(time.time() - start) / float(img_count))
-    for i, f in enumerate(full_features):
-        match_all_featues(f, tmag, tuv, sprite_clouds, mmag, muv)
+
+    #for i in range(len(sprites)):
+    #    for j, f in enumerate(full_features):
+    #        #print('len sf', len(sfeatures[i]))
+    #        #print('len sm', len(smags[i]))
+    #        #print('len su', len(suvs[i]))
+
+    #        match_all_featues(full_features[j], tmag[j], tuv[j], sfeatures[i], smags[i], suvs[i])
     print('total', total_time, 'average', float(total_time) / float(img_count))
 
 def main():
@@ -174,8 +237,8 @@ def main():
     sprite_kdt = [cKDTree(data=cloud[:, :2]) for cloud in sprite_clouds]
 
 
-    mario_sprite, mario_cloud, mario_kdt = sprites[1], sprite_clouds[1], sprite_kdt[1]
-    mmag, muv = normalize_knn(sprite_kdt[1], mario_cloud[:, :2], k=8)
+    mario_sprite, mario_sprite_point_cloud, mario_kdt = sprites[1], sprite_clouds[1], sprite_kdt[1]
+    mmag, muv = normalize_knn(sprite_kdt[1], mario_sprite_point_cloud[:, :2], k=8)
 
     pt = get_playthrough(play_number, game=game)['raw']
     img_count = 1
@@ -210,10 +273,10 @@ def main():
     # Match points
     start = time.time()
     matches = []
-    smatches = np.zeros((len(mario_cloud)), dtype=np.bool8)
+    smatches = np.zeros((len(mario_sprite_point_cloud)), dtype=np.bool8)
     for i, tf in enumerate(full_features):
         #print([match_features(full_features[i], tmag[i], tuv[i], f, m, u) for f, m, u in zip(mario_cloud, mmag, muv)])
-        matches.append([match_feature(full_features[i], tmag[i], tuv[i], f, m, u, p=True) for f, m, u in zip(mario_cloud, mmag, muv)])
+        matches.append([match_feature(full_features[i], tmag[i], tuv[i], f, m, u, p=True) for f, m, u in zip(mario_sprite_point_cloud, mmag, muv)])
         try:
             smatches[matches[-1].index(True)] = True
         except ValueError:
@@ -270,9 +333,8 @@ def generate_random_test_image(shape, sprites, num_sprites, overlap=False, bg_co
         img[x1:x2, y1:y2] = sprite[:x2 - x1, :y2 - y1, :3]
 
     return img, rsprites, bbs
+#@jit(nopython=True)
 def match_feature(tfeat, tmag, tuv, sfeat, smag, suv, p=False):
-    smag = smag.copy()
-    suv = suv.copy()
     if tfeat[2] != sfeat[2] or tfeat[5] != sfeat[5] or tfeat[6] != sfeat[6]:
         return False
     removed = np.zeros(smag.shape, dtype=np.bool8)
@@ -289,17 +351,154 @@ def match_feature(tfeat, tmag, tuv, sfeat, smag, suv, p=False):
         return False
     return True
 
-@jit(nopython=True)
 def match_all_featues(tfeatures, tmag, tuv, sfeatures, smag, suv):
     f_matrix = []
+
     for i, tf in enumerate(tfeatures):
         s_matrix = []
-        for j, sfeats in sfeatures:
-            s_matrix.append([match_feature(tf, tmag[i], tuv[i], sf, smag[j][k], suv[j][k]) for k, sf in enumerate(sfeats)])
+        for j, sf in enumerate(sfeatures):
+            #print('tf', tf)
+            #print('sf', sf)
+            #print()
+            temp = []
+            for k, _ in enumerate(smag[j]):
+                #print(i, j, k)
+                print('len(sf), len(smag[j])', len(sf), len(smag[j]))
+                print('len(tf), len(tmag[i])', len(tf), len(tmag), tmag)
+                #print(smag[j])
+                a = tf
+                b = tmag[i]
+                c = tuv[i]
+                d = sf
+                e = smag[j][k]
+                f = suv[j][k]
+                temp.append(match_feature(a, b, c, d, e, f))
+            s_matrix.append(temp)
         f_matrix.append(s_matrix)
 
 
+def test_new_hashing_function():
+    PROJECT_ROOT = os.path.join(os.path.dirname(os.path.realpath(__file__)))
+    from sprites.db.data_store import DataStore
+    ds = DataStore(f'{PROJECT_ROOT}/sprites/db/sqlite.db', games_path=f'{PROJECT_ROOT}/sprites/games.json', echo=False)
+    r = np.array([0, 0, 255], dtype=np.uint8)
+    g = np.array([0, 255, 0], dtype=np.uint8)
+    b = np.array([255, 0, 0], dtype=np.uint8)
+    c = np.array([255, 255, 0], dtype=np.uint8)
+    m = np.array([255, 0, 255], dtype=np.uint8)
+
+    w = np.array([255, 255, 255], dtype=np.uint8)
+    a = np.array([128, 128, 128], dtype=np.uint8)
+
+    ti1 = np.array([
+        [r, r, r, r, r, r, r, r, r, r],
+        [g, g, g, g, g, g, g, g, g, g],
+        [b, b, b, b, b, b, b, b, b, b],
+        [c, c, c, c, c, c, c, c, c, c],
+        [m, m, m, m, m, m, m, m, m, m],
+        [r, r, r, r, r, r, r, r, r, r],
+        [g, g, g, g, g, g, g, g, g, g],
+        [b, b, b, b, b, b, b, b, b, b],
+        [c, c, c, c, c, c, c, c, c, c],
+        [m, m, m, m, m, m, m, m, m, m],
+    ])
+
+    tg1 = FrameGraph(ti1, bg_color=np.array([0,0,0]), ds=ds)
+    assert(len(tg1.patches) == 10)
+
+    ti2 = np.array([
+        [r, g, b, c, m, r, g, b, c, m],
+        [r, g, b, c, m, r, g, b, c, m],
+        [r, g, b, c, m, r, g, b, c, m],
+        [r, g, b, c, m, r, g, b, c, m],
+        [r, g, b, c, m, r, g, b, c, m],
+    ])
+    tg2 = FrameGraph(ti2, bg_color=np.array([0,0,0]), ds=ds)
+    assert(len(tg2.patches) == 10)
+
+    ti3 = np.array([
+        [r, r, r, r, r, r, r, r, r, r],
+        [g, g, g, g, g, g, g, g, g, g],
+        [b, b, b, b, b, b, b, b, b, b],
+        [c, c, c, w, w, w, w, c, c, c],
+        [m, m, m, w, a, a, w, m, m, m],
+        [r, r, r, w, a, a, w, r, r, r],
+        [g, g, g, w, w, w, w, g, g, g],
+        [b, b, b, b, b, b, b, b, b, b],
+        [c, c, c, c, c, c, c, c, c, c],
+        [m, m, m, m, m, m, m, m, m, m],
+    ])
+    tg3 = FrameGraph(ti3, bg_color=np.array([0,0,0]), ds=ds)
+    assert(len(tg3.patches) == 16)
+
+    ti4 = np.array([
+        [r, r, r, r, r, w, r, r, r, r, r],
+        [r, r, r, r, r, w, r, r, r, r, r],
+        [r, r, r, r, r, w, r, r, r, r, r],
+        [r, r, r, r, r, w, r, r, r, r, r],
+        [r, r, r, r, r, w, r, r, r, r, r],
+        [b, b, b, b, b, w, b, b, b, b, b],
+        [b, b, b, b, b, w, b, b, b, b, b],
+        [b, b, b, b, b, w, b, b, b, b, b],
+        [b, b, b, b, b, w, b, b, b, b, b],
+        [b, b, b, b, b, w, b, b, b, b, b],
+    ])
+    tg4 = FrameGraph(ti4, bg_color=w, ds=ds)
+    tg4b = FrameGraph(ti4, ds=ds)
+    sg4 = tg4.subgraphs()
+    assert(len(tg4.patches) == 4)
+    assert(len(sg4) == 2)
+
+    ti5 = np.array([
+        [r, r, w, r, r],
+        [r, r, w, r, r],
+        [b, b, w, b, b],
+        [b, b, w, b, b],
+    ])
+    tg5 = FrameGraph(ti5, bg_color=w, ds=ds)
+    sg5 = tg5.subgraphs()
+    assert(len(tg5.patches) == 4)
+    assert(len(sg5) == 2)
+    print('x', tg4b.raw_frame.shape[0], bin(tg4b.raw_frame.shape[0]))
+    print('y', tg4b.raw_frame.shape[1], bin(tg4b.raw_frame.shape[1]))
+    print()
+
+    def print_legacy_hash(node):
+        h = bin(hash(node))
+        print()
+        print('  --- legacy ---')
+        print('  hash', hash(node))
+        print('  hash >> 16', hash(node) >> 16)
+        print('  x', node.patch.shape()[0], bin(node.patch.shape()[0]))
+        print('  y', node.patch.shape()[1], bin(node.patch.shape()[1]))
+        print('  ', len(h) - 3, h)
+        print('  ', len(h[3:-16]), h[3:-16])
+        print('  ', len(h[-16:-8]), h[-16:-8])
+        print('  ', len(h[-8:]), h[-8:])
+
+    def print_new_hash(node):
+        raw_patch = node.patch._patch._patch.astype(np.int64)
+        print()
+        print('  --- new ---')
+        print('  raw_patch', raw_patch)
+        print('  raw_patch.dtype', raw_patch.dtype)
+        phash = patch_hash(raw_patch)
+        h = bin(phash[0])
+        print('  hash', phash[0])
+        print('  x', node.patch.shape()[0], bin(node.patch.shape()[0]))
+        print('  y', node.patch.shape()[1], bin(node.patch.shape()[1]))
+        print('  ', len(h) - 3, h)
+        print('  ', len(h[3:-16]), h[3:-16])
+        print('  ', len(h[-16:-8]), h[-16:-8])
+        print('  ', len(h[-8:]), h[-8:])
+
+
+    for i, node in enumerate(tg4b.patches):
+        print_legacy_hash(node)
+        print_new_hash(node)
 
 # features: [(first_pixel_x, first_pixel_y, area, bounding_box_x1, bounding_box_y1, w, h)]
 if __name__ == '__main__':
-    main()
+    #test_new_hashing_function()
+    bench()
+    #main()

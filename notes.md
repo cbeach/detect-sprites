@@ -1,7 +1,9 @@
 # EOD
 
-Working on the sprite set. Specificaly matching nodes between a graph and a sprite
-    
+Switch focus from sprites to patches. i.e. is this _patch_ a PC/NPC/Map/etc patch?
+Attempt Bayesian analysis on vectorized pairs of patches.
+
+
 
 # Thoughts
 
