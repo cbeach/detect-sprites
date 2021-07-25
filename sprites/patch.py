@@ -361,28 +361,30 @@ class Patch:
     _PATCHES = {}
     @staticmethod
     def init_patch_db(ds=None):
-        # Pull the patches out of the db
-        if ds is None:
-            ds = ds = DataStore('temp.db', games_path='./games.json')
+        pass
+    #    # Pull the patches out of the db
+    #    if ds is None:
+    #        ds = ds = DataStore('temp.db', games_path='./games.json')
 
-        if len(Patch._PATCHES) == 0 and ds is not None:
-            db_sess = ds.Session()
-            db_sess.commit()
-            if db_sess.query(PatchM).count() > 0:
-                # Load patches from db
-                for i in db_sess.query(PatchM).all():
-                    p = _patch(model=i)
-                    Patch._PATCHES[hash(p)] = p
+    #    if len(Patch._PATCHES) == 0 and ds is not None:
+    #        db_sess = ds.Session()
+    #        db_sess.commit()
+    #        if db_sess.query(PatchM).count() > 0:
+    #            # Load patches from db
+    #            for i in db_sess.query(PatchM).all():
+    #                p = _patch(model=i)
+    #                Patch._PATCHES[hash(p)] = p
 
     def __init__(self, frame, x_seed, y_seed, mask=None, indirect=True, ds=None):
         self.indirect = indirect
         temp_patch = _patch(frame, x_seed, y_seed, mask, indirect)
         self._bb = temp_patch._bb
 
-        if Patch._PATCHES.get(hash(temp_patch), None) is None:
-            self._patch = Patch._PATCHES[hash(temp_patch)] = temp_patch
-        else:
-            self._patch = Patch._PATCHES[hash(temp_patch)]
+        self._patch = Patch._PATCHES[hash(temp_patch)] = temp_patch
+        #if Patch._PATCHES.get(hash(temp_patch), None) is None:
+        #    self._patch = Patch._PATCHES[hash(temp_patch)] = temp_patch
+        #else:
+        #    self._patch = Patch._PATCHES[hash(temp_patch)]
 
         self.patch_hash = hash(self._patch)
 
