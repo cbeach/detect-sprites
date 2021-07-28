@@ -3,6 +3,7 @@ import hashlib
 import multiprocessing as mp
 import os
 import pickle
+from random import choice, choices
 
 from .quick_parse import quick_parse
 

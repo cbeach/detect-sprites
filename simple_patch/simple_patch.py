@@ -1,11 +1,13 @@
 from collections import namedtuple, defaultdict, OrderedDict
 from dataclasses import dataclass, field
-from typing import NamedTuple, List
+from typing import NamedTuple, List, Any
 import math
 import functools
 from functools import partial, lru_cache
 import hashlib
+import psutil
 import inspect
+
 import io
 from itertools import product, groupby
 import multiprocessing as mp
@@ -26,6 +28,7 @@ from sklearn import preprocessing
 from sklearn.metrics import mean_squared_error
 from termcolor import cprint as _cprint
 from tinydb import TinyDB, Query
+import progressbar
 
 from sprites.sprite_util import neighboring_points, get_playthrough, show_image, show_images
 from sprites.find import fit_bounding_box
@@ -46,7 +49,7 @@ def cpprint(obj, color='white'):
     _pprint(obj, buffer)                                                                            
     _cprint(buffer.getvalue(), color)                                                               
 def prepend_lineno(*obj, depth=1):
-    return f'{formatted_file_and_lineno(depth + 1)}{str(*obj)}'
+    return f'{formatted_file_and_lineno(depth + 1)}{" ".join(map(str, obj))}'
 def lineno_print(*obj):
     if obj == '':                                                                                   
         _print(*obj)
@@ -90,6 +93,7 @@ class PatchVector(NamedTuple):
     dst_index: int
 @dataclass(unsafe_hash=True)
 class PatchNeighborVectorSpace:
+    frame_number: int
     src_index: int
     src_hash: Hash
     unit_vects: List[float] = field(default_factory=list)
@@ -97,26 +101,50 @@ class PatchNeighborVectorSpace:
     dst_indexes: List[int] = field(default_factory=list)
     dst_hashes: List[Hash] = field(default_factory=list)
     vector_space_hash: List[int] = field(default_factory=list)
+    all_neighbors: bool = field(default_factory=lambda: True)
+    def append(self, new_dest_patch, unit_vect, mag):
+        self.dst_indexes.append(new_dest_patch.patch_index)
+        self.dst_hashes.append(new_dest_patch.patch_hash)
+        self.unit_vects.append(unit_vect)
+        self.mags.append(mag)
+        self.vector_space_hash = vector_space_hash(
+            self.src_patch.hsh,
+            self.vector_space.dst_hashes,
+            self.vector_space.unit_vects,
+            self.vector_space.mags)
+
 class Point(NamedTuple):
     x: int
     y: int
+
+@dataclass(unsafe_hash=True)
+class Environment:
+    playthrough_features: Any = None
+    playthrough_masks: Any = None
+    playthrough_hashes: Any = None
+    playthrough_pix_to_patch_index: Any = None
+    playthrough_patches: Any = None
+    playthrough_kdtrees: Any = None
+    playthrough_neighbor_index: Any = None
+    playthrough_vector_space: Any = None
+    aggregated_vector_space: Any = None
+
 
 np.set_printoptions(threshold=10000000, linewidth=1000000000)
 shrink = True
 
 db = TinyDB(os.path.join(DATA_DIR, 'data_store/incremental_data.db'))
 
-use_cached_data = False
-def algo_v1():
+def algo_v1(pickle_me=True):
     game = 'SuperMarioBros-Nes'
     play_number = 1000
     ntype = False
     mag_threshold = 50
     start_time = init_time = time.time()
-    if use_cached_data is not True:
+    if pickle_me is True:
         print('recalculating...')
         playthrough_features, playthrough_masks, playthrough_hashes, playthrough_pix_to_patch_index \
-            = parse_and_hash_playthrough(game, play_number, ntype, img_count=10)
+            = parse_and_hash_playthrough(game, play_number, ntype)
         with open('playthrough_features.pickle', 'wb') as fp:
             pickle.dump(playthrough_features, fp)
         with open('playthrough_masks.pickle', 'wb') as fp:
@@ -142,73 +170,101 @@ def algo_v1():
             pickle.dump(playthrough_neighbor_index, fp)
         print('4', time.time() - init_time, time.time() - start_time)
         start_time = time.time()
-        playthrough_vectors, playthrough_vector_space = encode_playthrough_vectors(
+        playthrough_vector_space = encode_playthrough_vectors(
             playthrough_patches,
             playthrough_pix_to_patch_index,
             playthrough_kdtrees,
             playthrough_neighbor_index,
             mag_threshold=mag_threshold)
-        with open('playthrough_vectors.pickle', 'wb') as fp:
-            pickle.dump(playthrough_vectors, fp)
         with open('playthrough_vector_space.pickle', 'wb') as fp:
             pickle.dump(playthrough_vector_space, fp)
         print('5', time.time() - init_time, time.time() - start_time)
         start_time = time.time()
-        aggregated_vectors = aggregate_playthrough_vectors(playthrough_vectors)
         aggregated_vector_space = aggregate_playthrough_vector_space(playthrough_vector_space)
-        with open('aggregated_vectors.pickle', 'wb') as fp:
-            pickle.dump(aggregated_vectors, fp)
         with open('aggregated_vector_space.pickle', 'wb') as fp:
             pickle.dump(aggregated_vector_space, fp)
         print('6', time.time() - init_time, time.time() - start_time); start_time = time.time()
-        filtered_playthrough_vectors = filter_playthrough_vectors(aggregated_vectors, playthrough_vectors)
-        with open('filtered_playthrough_vectors.pickle', 'wb') as fp:
-            pickle.dump(filtered_playthrough_vectors, fp)
         print('7', time.time() - init_time, time.time() - start_time); start_time = time.time()
-        filtered_aggregated_vectors = filter_aggregated_vectors(aggregated_vectors, mag_threshold=mag_threshold)
-        with open('filtered_aggregated_vectors.pickle', 'wb') as fp:
-            pickle.dump(filtered_aggregated_vectors, fp)
         print('8', time.time() - init_time, time.time() - start_time); start_time = time.time()
     else:
         print('loading cache...')
-        with open('playthrough_features.pickle', 'rb') as fp:
-            playthrough_features = pickle.load(fp)
-        with open('playthrough_masks.pickle', 'rb') as fp:
-            playthrough_masks = pickle.load(fp)
-        with open('playthrough_hashes.pickle', 'rb') as fp:
-            playthrough_hashes = pickle.load(fp)
-        with open('playthrough_pix_to_patch_index.pickle', 'rb') as fp:
-            playthrough_pix_to_patch_index = pickle.load(fp)
-        with open('playthrough_patches.pickle', 'rb') as fp:
-            playthrough_patches = pickle.load(fp)
-        #with open('playthrough_kdtrees.pickle', 'rb') as fp:
-        #    playthrough_kdtrees = pickle.load(fp)
-        with open('playthrough_neighbor_index.pickle', 'rb') as fp:
-            playthrough_neighbor_index = pickle.load(fp)
-        #with open('playthrough_vectors.pickle', 'rb') as fp:
-        #    playthrough_vectors = pickle.load(fp)
-        with open('playthrough_vector_space.pickle', 'rb') as fp:
-            playthrough_vector_space = pickle.load(fp)
-        #with open('aggregated_vectors.pickle', 'rb') as fp:
-        #    aggregated_vectors = pickle.load(fp)
-        with open('aggregated_vector_space.pickle', 'rb') as fp:
-            aggregated_vector_space = pickle.load(fp)
-        with open('filtered_playthrough_vectors.pickle', 'rb') as fp:
-            filtered_playthrough_vectors = pickle.load(fp)
-        with open('filtered_aggregated_vectors.pickle', 'rb') as fp:
-            filtered_aggregated_vectors = pickle.load(fp)
-        grouped_vector_spaces = determine_bayesian_probabilities(playthrough_vector_space, aggregated_vector_space)
-        #partition_vectors(filtered_aggregated_vectors, filtered_playthrough_vectors, playthrough_vector_space, aggregated_vector_space)
+        env = load_env()
         print('9', time.time() - init_time, time.time() - start_time); start_time = time.time()
+        start_time = init_time = time.time()
+        grouped_vector_spaces = determine_bayesian_probabilities(env.playthrough_vector_space, env.aggregated_vector_space)
+        print('10', time.time() - init_time, time.time() - start_time); start_time = time.time()
+        pass
+
+def load_env():
+    print('playthrough_features.pickle')
+    with open('playthrough_features.pickle', 'rb') as fp:
+        playthrough_features = pickle.load(fp)
+    print('playthrough_masks.pickle')
+    with open('playthrough_masks.pickle', 'rb') as fp:
+        playthrough_masks = pickle.load(fp)
+    print('playthrough_hashes.pickle')
+    with open('playthrough_hashes.pickle', 'rb') as fp:
+        playthrough_hashes = pickle.load(fp)
+    print('playthrough_pix_to_patch_index.pickle')
+    with open('playthrough_pix_to_patch_index.pickle', 'rb') as fp:
+        playthrough_pix_to_patch_index = pickle.load(fp)
+    print('playthrough_patches.pickle')
+    with open('playthrough_patches.pickle', 'rb') as fp:
+        playthrough_patches = pickle.load(fp)
+    print('playthrough_kdtrees.pickle')
+    with open('playthrough_kdtrees.pickle', 'rb') as fp:
+        playthrough_kdtrees = pickle.load(fp)
+    print('playthrough_neighbor_index.pickle')
+    with open('playthrough_neighbor_index.pickle', 'rb') as fp:
+        playthrough_neighbor_index = pickle.load(fp)
+    print('playthrough_vector_space.pickle')
+    with open('playthrough_vector_space.pickle', 'rb') as fp:
+        playthrough_vector_space = pickle.load(fp)
+    print('aggregated_vector_space.pickle')
+    with open('aggregated_vector_space.pickle', 'rb') as fp:
+        aggregated_vector_space = pickle.load(fp)
+    return Environment(
+        playthrough_features=playthrough_features,
+        playthrough_masks=playthrough_masks,
+        playthrough_hashes=playthrough_hashes,
+        playthrough_pix_to_patch_index=playthrough_pix_to_patch_index,
+        playthrough_patches=playthrough_patches,
+        playthrough_kdtrees=playthrough_kdtrees,
+        playthrough_neighbor_index=playthrough_neighbor_index,
+        playthrough_vector_space=playthrough_vector_space,
+        aggregated_vector_space=aggregated_vector_space
+    )
 
 def determine_bayesian_probabilities(playthrough_vector_space, aggregated_vector_space):
     grouped_vector_spaces = []
+
     for i in playthrough_vector_space:
          grouped_vector_spaces.append(
              {
                  j: {l.vector_space_hash: l for l in k}
                  for j, k in groupby(i, key=lambda a: patch_hash_to_int(a.src_hash))
              })
+    expanded_vector_space = []
+    for i, group in enumerate(grouped_vector_spaces):
+        expansion = {}
+        for key, value in group.items():
+            if len(value) == 1:
+                # iterate over the destinations
+                expansion[key] = PatchNeighborVectorSpace(
+                    frame_number=value[0].frame_number,
+                    src_index=value[0].src_index,
+                    src_hash=value[0].src_hash,
+                    unit_vects=value[0].unit_vects,
+                    mags=value[0].mags,
+                    dst_indexes=value[0].dst_indexes,
+                    dst_hashes=value[0].dst_hashes,
+                    vector_space_hash=value[0].vector_space_hash,
+                    all_neighbors=value[0].all_neighbors,
+                )
+                print(expansion[key])
+                time.sleep(1)
+                sys.exit(0)
+
     return grouped_vector_spaces
 def partition_vectors(filtered_aggregated_vectors, filtered_playthrough_vectors, playthough_vector_space, aggregated_vector_space):
     """
@@ -325,52 +381,59 @@ def _get_playthrough_neighbors_index(playthrough_pix_to_patch_index: np.array, n
 def are_patches_neighbors(patch1, patch2, frame_neighbor_index):
     return frame_neighbor_index[patch1.patch_index].get(patch2.patch_index, False)
 def encode_playthrough_vectors(playthrough_patches, playthrough_pix_to_patch_index, playthrough_kdtrees, playthrough_neighbor_index, mag_threshold=50):
-    playthrough_vectors = []
+    #playthrough_vectors = []
     playthrough_vector_space = []
-    for i, kdtree in enumerate(playthrough_kdtrees):
-        frame_vectors = []
-        frame_vector_space = []
-        frame_patches = playthrough_patches[i]
-        frame_neighbor_index = playthrough_neighbor_index[i]
-        pix_to_patch_index = playthrough_pix_to_patch_index[i]
-        for j, src_patch in enumerate(frame_patches):
-            patch_coords = Point(src_patch.first_x, src_patch.first_y)
-            unit_vectors, magnitudes, dst_patch_index = normalize_knn(kdtree, [patch_coords], k=len(frame_patches))
-            coords = [kdtree.data[k] for k in dst_patch_index[0]]
+    with progressbar.ProgressBar(max_value=len(playthrough_kdtrees)) as bar:
+        for i, kdtree in enumerate(playthrough_kdtrees):
+            bar.update(i)
+            #frame_vectors = []
+            frame_vector_space = []
+            frame_patches = playthrough_patches[i]
+            frame_neighbor_index = playthrough_neighbor_index[i]
+            pix_to_patch_index = playthrough_pix_to_patch_index[i]
+            for j, src_patch in enumerate(frame_patches):
+                #print(i, len(playthrough_kdtrees), j, len(frame_patches), f'{(i / len(frame_patches)) * 100}%')
+                if len(frame_patches) <= 1:
+                    continue
+                patch_coords = Point(src_patch.first_x, src_patch.first_y)
+                unit_vectors, magnitudes, dst_patch_index = normalize_knn(kdtree, [patch_coords], k=len(frame_patches), distance_upper_bound=50)
+                coords = [kdtree.data[k] for k in dst_patch_index[0]]
 
-            dst_patches = []
-            for k, coord in enumerate(coords):
-                if magnitudes[0][k] > mag_threshold:
-                    break
-                dst_patches.append(get_patch_from_pix_coord(int(coord[0]), int(coord[1]), frame_patches, pix_to_patch_index))
+                dst_patches = []
+                for k, coord in enumerate(coords):
+                    if magnitudes[0][k] > mag_threshold:
+                        break
+                    dst_patches.append(get_patch_from_pix_coord(int(coord[0]), int(coord[1]), frame_patches, pix_to_patch_index))
 
-            # ['src_patch_index', 'src_patch_hash', 'unit_vects', 'mags', 'dst_patch_indexes', 'dst_patch_hashes'])
-            vector_space = PatchNeighborVectorSpace(
-                j, src_patch[0], [], [], [], []
-            )
-            for l, dst_patch in enumerate(dst_patches):
-                neighbors = are_patches_neighbors(src_patch, dst_patch, frame_neighbor_index)
-                frame_vectors.append(
-                    PatchVector(
-                            src_patch[0],
-                            unit_vectors[0][l],
-                            magnitudes[0][l],
-                            dst_patch[0],
-                            neighbors, j, l
-                    )
+                # ['src_patch_index', 'src_patch_hash', 'unit_vects', 'mags', 'dst_patch_indexes', 'dst_patch_hashes'])
+                vector_space = PatchNeighborVectorSpace(
+                    i, j, src_patch[0], [], [], [], []
                 )
-                if neighbors is True:
-                    vector_space.unit_vects.append(unit_vectors[0][l])
-                    vector_space.mags.append(magnitudes[0][l])
-                    vector_space.dst_hashes.append(dst_patch.hsh)
-                    vector_space.dst_indexes.append(dst_patch.patch_index)
-            vector_space.vector_space_hash = vector_space_hash(src_patch.hsh, vector_space.dst_hashes, vector_space.unit_vects, vector_space.mags)
-            frame_vector_space.append(vector_space)
+                for l, dst_patch in enumerate(dst_patches):
+                    neighbors = are_patches_neighbors(src_patch, dst_patch, frame_neighbor_index)
+                    #frame_vectors.append(
+                    #    PatchVector(
+                    #            src_patch[0],
+                    #            unit_vectors[0][l],
+                    #            magnitudes[0][l],
+                    #            dst_patch[0],
+                    #            neighbors, j, l
+                    #    )
+                    #)
+                    if neighbors is True:
+                        vector_space.unit_vects.append(unit_vectors[0][l])
+                        vector_space.mags.append(magnitudes[0][l])
+                        vector_space.dst_hashes.append(dst_patch.hsh)
+                        vector_space.dst_indexes.append(dst_patch.patch_index)
+                vector_space.vector_space_hash = vector_space_hash(src_patch.hsh, vector_space.dst_hashes, vector_space.unit_vects, vector_space.mags)
+                frame_vector_space.append(vector_space)
 
-        #print('4b', time.time() - start_time)
-        playthrough_vectors.append(frame_vectors)
-        playthrough_vector_space.append(frame_vector_space)
-    return playthrough_vectors, playthrough_vector_space
+            #print('4b', time.time() - start_time)
+            #playthrough_vectors.append(frame_vectors)
+            playthrough_vector_space.append(frame_vector_space)
+    #return playthrough_vectors, playthrough_vector_space
+    return playthrough_vector_space
+
 def get_patch_from_pix_coord(x, y, frame_patches, pix_to_patch_index):
     frame_index = pix_to_patch_index[x][y]
     return frame_patches[frame_index]
@@ -398,12 +461,15 @@ def encode_playthrough_patches(playthrough_features, playthrough_masks, playthro
             frame_patches.append(Patch(frame_hashes[j], frame_masks[j], j, *patch_feature))
         playthrough_patches.append(frame_patches)
     return playthrough_patches
-def normalize_knn(kdt, features, k=None):
+def normalize_knn(kdt, features, k=None, distance_upper_bound=None):
     if k is None:
         k = len(features)
     if len(kdt.data) == 1:
         return np.zeros((1, k)), np.zeros((1, k, 2))
-    dist_to_dest_patch, dest_patch_index = kdt.query(features, k=k)
+    if distance_upper_bound is None:
+        dist_to_dest_patch, dest_patch_index = kdt.query(features, k=k, workers=-1)
+    else:
+        dist_to_dest_patch, dest_patch_index = kdt.query(features, k=k, workers=-1, distance_upper_bound=distance_upper_bound)
     mags = dist_to_dest_patch[:, 1:]
     all_coords = np.array([kdt.data[dest_patch_index[i]] for i in range(dest_patch_index.shape[0])])
     src_patch_coords = all_coords[:, 0]
@@ -502,7 +568,7 @@ def match_all_featues(tfeatures, tmag, tuv, sfeatures, smag, suv):
 def test_new_hashing_function():
     PROJECT_ROOT = os.path.join(os.path.dirname(os.path.realpath(__file__)))
     from sprites.db.data_store import DataStore
-    ds = DataStore(f'{PROJECT_ROOT}/sprites/db/sqlite.db', games_path=f'{PROJECT_ROOT}/sprites/games.json', echo=False)
+    ds = DataStore(f'{PROJECT_ROOT}/../sprites/db/sqlite.db', games_path=f'{PROJECT_ROOT}/sprites/games.json', echo=False)
     r = np.array([0, 0, 255], dtype=np.uint8)
     g = np.array([0, 255, 0], dtype=np.uint8)
     b = np.array([255, 0, 0], dtype=np.uint8)
@@ -688,7 +754,8 @@ def test_vector_space_function():
     playthrough_patches = encode_playthrough_patches(playthrough_features, playthrough_masks, playthrough_hashes)
     playthrough_kdtrees = populate_kdtrees(playthrough_patches)
     playthrough_neighbor_index = get_playthrough_neighbors_index(playthrough_pix_to_patch_index, ntype)
-    playthrough_vectors, playthrough_vector_space = encode_playthrough_vectors(
+    #playthrough_vectors,
+    playthrough_vector_space = encode_playthrough_vectors(
         playthrough_patches,
         playthrough_pix_to_patch_index,
         playthrough_kdtrees,
