@@ -1,19 +1,18 @@
 from collections import namedtuple, defaultdict, OrderedDict
 from dataclasses import dataclass, field
+from glob import glob
 from typing import NamedTuple, List, Any
 import math
 import functools
 from functools import partial, lru_cache
 import hashlib
 import psutil
-import inspect
 
 import io
 from itertools import product, groupby
 import multiprocessing as mp
 import os
 import pickle
-from pprint import pprint as _pprint
 import random
 import sys
 import time
@@ -26,9 +25,9 @@ from recordclass import RecordClass
 from scipy.spatial.ckdtree import cKDTree
 from sklearn import preprocessing
 from sklearn.metrics import mean_squared_error
-from termcolor import cprint as _cprint
 from tinydb import TinyDB, Query
 import progressbar
+from more_itertools import chunked
 
 from sprites.sprite_util import neighboring_points, get_playthrough, show_image, show_images
 from sprites.find import fit_bounding_box
@@ -37,45 +36,31 @@ from simple_patch.step_1 import parse_and_hash_playthrough
 from simple_patch.utils import DATA_DIR, DATASTORE_DIR
 from simple_patch.patch_hash import patch_hash
 from simple_patch.quick_parse import quick_parse
-from nptyping import NDArray, UInt8, Int64
+from nptyping import NDArray, UInt8, Int64, Float
 # features: [(first_pixel_x, first_pixel_y, area, bounding_box_x1, bounding_box_y1, w, h)]
 
-def formatted_file_and_lineno(depth=1):                                                             
-    frame_stack = inspect.getouterframes(inspect.currentframe())                                    
-    parrent = frame_stack[depth]                                                                    
-    return f'{parrent.filename}:{parrent.lineno} - '                                                
-def cpprint(obj, color='white'):                                                                    
-    buffer = io.StringIO()                                                                          
-    _pprint(obj, buffer)                                                                            
-    _cprint(buffer.getvalue(), color)                                                               
-def prepend_lineno(*obj, depth=1):
-    return f'{formatted_file_and_lineno(depth + 1)}{" ".join(map(str, obj))}'
+
+from termcolor import cprint as _cprint
+import inspect, io, termcolor as _tm, pprint as _pp
+def formatted_file_and_lineno(depth=1): frame_stack = inspect.getouterframes(inspect.currentframe()); parrent = frame_stack[depth]; return f'{parrent.filename}:{parrent.lineno} $> '
+def cpprint(obj, color='white'): buffer = io.StringIO(); _pp.pprint(obj, buffer); _tm.cprint(buffer.getvalue(), color);
+def prepend_lineno(*obj, depth=1): return f'{formatted_file_and_lineno(depth + 1)}{" ".join(map(str, obj))}'
 def lineno_print(*obj):
-    if obj == '':                                                                                   
+    if obj == '' or len(obj) == 0:
         _print(*obj)
-    else:                                                                                           
+    else:
         _print(prepend_lineno(*obj, depth=2))
-def lineno_pprint(obj):                                                                             
-    _print(formatted_file_and_lineno(depth=2), end='')                                              
-    _pprint(obj)                                                                                    
-def lineno_cprint(obj, color='white'):                                                              
-    _cprint(prepend_lineno(obj, depth=2), color)                                                    
-def lineno_cpprint(obj, color='white'):                                                             
-    _print(formatted_file_and_lineno(depth=2), end='')                                              
-    _cpprint(obj, color)                                                                            
-_print = print                                                                                      
-print = lineno_print                                                                                
-cprint = lineno_cprint                                                                              
-pprint = lineno_pprint                                                                              
-_cpprint = cpprint                                                                                  
-cpprint = lineno_cpprint
+def lineno_pprint(obj): _print(formatted_file_and_lineno(depth=2), end=''); _pp.pprint(obj)
+def lineno_cprint(obj, color='white'): _tm.cprint(prepend_lineno(obj, depth=2), color)
+def lineno_cpprint(obj, color='white'): _print(formatted_file_and_lineno(depth=2), end=''); _cpprint(obj, color);
+_print = print; print = lineno_print; cprint = lineno_cprint; pprint = lineno_pprint; _cpprint = cpprint; cpprint = lineno_cpprint;
 
 Hash = NDArray[Int64]
 Mask = NDArray[UInt8]
 class Patch(NamedTuple):
     hsh: Hash
     mask: Mask
-    patch_index: int
+    index: int
     first_x: int
     first_y: int
     area: int
@@ -92,10 +77,15 @@ class PatchVector(NamedTuple):
     src_index: int
     dst_index: int
 @dataclass(unsafe_hash=True)
+class Knns:
+    indexes: NDArray[UInt8]
+    mags: NDArray[Float]
+    unit_vects: NDArray[Float]
+@dataclass(unsafe_hash=True)
 class PatchNeighborVectorSpace:
-    frame_number: int
     src_index: int
     src_hash: Hash
+    frame_number: int
     unit_vects: List[float] = field(default_factory=list)
     mags: List[float] = field(default_factory=list)
     dst_indexes: List[int] = field(default_factory=list)
@@ -103,15 +93,15 @@ class PatchNeighborVectorSpace:
     vector_space_hash: List[int] = field(default_factory=list)
     all_neighbors: bool = field(default_factory=lambda: True)
     def append(self, new_dest_patch, unit_vect, mag):
-        self.dst_indexes.append(new_dest_patch.patch_index)
-        self.dst_hashes.append(new_dest_patch.patch_hash)
+        self.dst_indexes.append(new_dest_patch.index)
+        self.dst_hashes.append(new_dest_patch.hsh)
         self.unit_vects.append(unit_vect)
         self.mags.append(mag)
         self.vector_space_hash = vector_space_hash(
-            self.src_patch.hsh,
-            self.vector_space.dst_hashes,
-            self.vector_space.unit_vects,
-            self.vector_space.mags)
+            self.src_hash,
+            self.dst_hashes,
+            self.unit_vects,
+            self.mags)
 
 class Point(NamedTuple):
     x: int
@@ -128,101 +118,37 @@ class Environment:
     playthrough_neighbor_index: Any = None
     playthrough_vector_space: Any = None
     aggregated_vector_space: Any = None
-
+    playthrough_knns: Any = None
 
 np.set_printoptions(threshold=10000000, linewidth=1000000000)
 shrink = True
 
 db = TinyDB(os.path.join(DATA_DIR, 'data_store/incremental_data.db'))
 
-def algo_v1(pickle_me=True):
-    game = 'SuperMarioBros-Nes'
-    play_number = 1000
+def get_env(*args, **kwargs):
     ntype = False
     mag_threshold = 50
     start_time = init_time = time.time()
-    if pickle_me is True:
-        print('recalculating...')
-        playthrough_features, playthrough_masks, playthrough_hashes, playthrough_pix_to_patch_index \
-            = parse_and_hash_playthrough(game, play_number, ntype)
-        with open('playthrough_features.pickle', 'wb') as fp:
-            pickle.dump(playthrough_features, fp)
-        with open('playthrough_masks.pickle', 'wb') as fp:
-            pickle.dump(playthrough_masks, fp)
-        with open('playthrough_hashes.pickle', 'wb') as fp:
-            pickle.dump(playthrough_hashes, fp)
-        with open('playthrough_pix_to_patch_index.pickle', 'wb') as fp:
-            pickle.dump(playthrough_pix_to_patch_index, fp)
-        print('1', time.time() - init_time, time.time() - start_time)
-        start_time = time.time()
-        playthrough_patches = encode_playthrough_patches(playthrough_features, playthrough_masks, playthrough_hashes)
-        with open('playthrough_patches.pickle', 'wb') as fp:
-            pickle.dump(playthrough_patches, fp)
-        print('2', time.time() - init_time, time.time() - start_time)
-        start_time = time.time()
-        playthrough_kdtrees = populate_kdtrees(playthrough_patches)
-        with open('playthrough_kdtrees.pickle', 'wb') as fp:
-            pickle.dump(playthrough_kdtrees, fp)
-        print('3', time.time() - init_time, time.time() - start_time)
-        start_time = time.time()
-        playthrough_neighbor_index = get_playthrough_neighbors_index(playthrough_pix_to_patch_index, ntype)
-        with open('playthrough_neighbor_index.pickle', 'wb') as fp:
-            pickle.dump(playthrough_neighbor_index, fp)
-        print('4', time.time() - init_time, time.time() - start_time)
-        start_time = time.time()
-        playthrough_vector_space = encode_playthrough_vectors(
-            playthrough_patches,
-            playthrough_pix_to_patch_index,
-            playthrough_kdtrees,
-            playthrough_neighbor_index,
-            mag_threshold=mag_threshold)
-        with open('playthrough_vector_space.pickle', 'wb') as fp:
-            pickle.dump(playthrough_vector_space, fp)
-        print('5', time.time() - init_time, time.time() - start_time)
-        start_time = time.time()
-        aggregated_vector_space = aggregate_playthrough_vector_space(playthrough_vector_space)
-        with open('aggregated_vector_space.pickle', 'wb') as fp:
-            pickle.dump(aggregated_vector_space, fp)
-        print('6', time.time() - init_time, time.time() - start_time); start_time = time.time()
-        print('7', time.time() - init_time, time.time() - start_time); start_time = time.time()
-        print('8', time.time() - init_time, time.time() - start_time); start_time = time.time()
-    else:
-        print('loading cache...')
-        env = load_env()
-        print('9', time.time() - init_time, time.time() - start_time); start_time = time.time()
-        start_time = init_time = time.time()
-        grouped_vector_spaces = determine_bayesian_probabilities(env.playthrough_vector_space, env.aggregated_vector_space)
-        print('10', time.time() - init_time, time.time() - start_time); start_time = time.time()
-        pass
-
-def load_env():
-    print('playthrough_features.pickle')
-    with open('playthrough_features.pickle', 'rb') as fp:
-        playthrough_features = pickle.load(fp)
-    print('playthrough_masks.pickle')
-    with open('playthrough_masks.pickle', 'rb') as fp:
-        playthrough_masks = pickle.load(fp)
-    print('playthrough_hashes.pickle')
-    with open('playthrough_hashes.pickle', 'rb') as fp:
-        playthrough_hashes = pickle.load(fp)
-    print('playthrough_pix_to_patch_index.pickle')
-    with open('playthrough_pix_to_patch_index.pickle', 'rb') as fp:
-        playthrough_pix_to_patch_index = pickle.load(fp)
-    print('playthrough_patches.pickle')
-    with open('playthrough_patches.pickle', 'rb') as fp:
-        playthrough_patches = pickle.load(fp)
-    print('playthrough_kdtrees.pickle')
-    with open('playthrough_kdtrees.pickle', 'rb') as fp:
-        playthrough_kdtrees = pickle.load(fp)
-    print('playthrough_neighbor_index.pickle')
-    with open('playthrough_neighbor_index.pickle', 'rb') as fp:
-        playthrough_neighbor_index = pickle.load(fp)
-    print('playthrough_vector_space.pickle')
-    with open('playthrough_vector_space.pickle', 'rb') as fp:
-        playthrough_vector_space = pickle.load(fp)
-    print('aggregated_vector_space.pickle')
-    with open('aggregated_vector_space.pickle', 'rb') as fp:
-        aggregated_vector_space = pickle.load(fp)
+    temp = 0
+    #print(temp); temp += 1
+    playthrough_features, playthrough_masks, playthrough_hashes, playthrough_pix_to_patch_index \
+        = parse_and_hash_playthrough(*args, **kwargs)
+    #print(temp); temp += 1
+    playthrough_patches = encode_playthrough_patches(playthrough_features, playthrough_masks, playthrough_hashes)
+    #print(temp); temp += 1
+    playthrough_kdtrees = populate_kdtrees(playthrough_patches)
+    #print(temp); temp += 1
+    playthrough_neighbor_index = get_playthrough_neighbors_index(playthrough_pix_to_patch_index, ntype)
+    #print(temp); temp += 1
+    playthrough_vector_space, playthrough_knns = encode_playthrough_vectors(
+        playthrough_patches,
+        playthrough_pix_to_patch_index,
+        playthrough_kdtrees,
+        playthrough_neighbor_index,
+        mag_threshold=mag_threshold)
+    #print(temp); temp += 1
+    aggregated_vector_space = aggregate_playthrough_vector_space(playthrough_vector_space)
+    #print(temp); temp += 1
     return Environment(
         playthrough_features=playthrough_features,
         playthrough_masks=playthrough_masks,
@@ -232,7 +158,206 @@ def load_env():
         playthrough_kdtrees=playthrough_kdtrees,
         playthrough_neighbor_index=playthrough_neighbor_index,
         playthrough_vector_space=playthrough_vector_space,
-        aggregated_vector_space=aggregated_vector_space
+        aggregated_vector_space=aggregated_vector_space,
+        playthrough_knns=playthrough_knns
+    )
+
+def algo_v1(pickle_me=True):
+    game = 'SuperMarioBros-Nes'
+    play_number = 1000
+    ntype = False
+    mag_threshold = 50
+    start_time = init_time = time.time()
+    if pickle_me is True:
+        print('recalculating...')
+
+        playthrough_features, playthrough_masks, playthrough_hashes, playthrough_pix_to_patch_index \
+            = parse_and_hash_playthrough(game, play_number, ntype, img_count=10)
+        #playthrough_features, playthrough_masks, playthrough_hashes, playthrough_pix_to_patch_index \
+        #    = parse_and_hash_playthrough(None, None, ntype=ntype, img_path='/home/mcsmash/dev/deep_thought/data_tools/preprocessing/detect-sprites/sprites/sprites/SuperMarioBros-Nes/tests/mario-and-a-goomba-far-apart.png')
+            #= parse_and_hash_playthrough(None, None, ntype=ntype, img_path='/home/mcsmash/dev/deep_thought/data_tools/preprocessing/detect-sprites/sprites/sprites/SuperMarioBros-Nes/tests/2-marios-far-apart.png')
+            #= parse_and_hash_playthrough(None, None, ntype=ntype, img_path='sprites/sprites/SuperMarioBros-Nes/3.png')
+        save_data(playthrough_features, 'playthrough_features')
+        save_data(playthrough_masks, 'playthrough_masks')
+        save_data(playthrough_hashes, 'playthrough_hashes')
+        save_data(playthrough_pix_to_patch_index, 'playthrough_pix_to_patch_index')
+        print('1', time.time() - init_time, time.time() - start_time)
+        start_time = time.time()
+        playthrough_patches = encode_playthrough_patches(playthrough_features, playthrough_masks, playthrough_hashes)
+        save_data(playthrough_patches, 'playthrough_patches')
+        print('2', time.time() - init_time, time.time() - start_time)
+        start_time = time.time()
+        playthrough_kdtrees = populate_kdtrees(playthrough_patches)
+        save_data(playthrough_kdtrees, 'playthrough_kdtrees')
+        print('3', time.time() - init_time, time.time() - start_time)
+        start_time = time.time()
+        playthrough_neighbor_index = get_playthrough_neighbors_index(playthrough_pix_to_patch_index, ntype)
+        save_data(playthrough_neighbor_index, 'playthrough_neighbor_index')
+        print('4', time.time() - init_time, time.time() - start_time)
+        start_time = time.time()
+        playthrough_vector_space, playthrough_knns = encode_playthrough_vectors(
+            playthrough_patches,
+            playthrough_pix_to_patch_index,
+            playthrough_kdtrees,
+            playthrough_neighbor_index,
+            mag_threshold=mag_threshold)
+        save_data(playthrough_vector_space, 'playthrough_vector_space')
+        save_data(playthrough_knns, 'playthrough_knns')
+        print('5', time.time() - init_time, time.time() - start_time)
+        start_time = time.time()
+        aggregated_vector_space = aggregate_playthrough_vector_space(playthrough_vector_space)
+        save_data([(key, value) for key, value in aggregated_vector_space.items()], 'aggregated_vector_space')
+        env = load_env()
+        playtime(env)
+    else:
+        print('loading cache...')
+        env = load_env()
+        print('9', time.time() - init_time, time.time() - start_time); start_time = time.time()
+        start_time = init_time = time.time()
+        #grouped_vector_spaces = determine_bayesian_probabilities(env.playthrough_vector_space, env.aggregated_vector_space)
+        print('10', time.time() - init_time, time.time() - start_time); start_time = time.time()
+        playtime(env)
+        pass
+
+def playtime(env):
+    playthrough_frame_aggregation = []
+    tmp = defaultdict(int)
+    for i, fvs in enumerate(env.playthrough_vector_space):
+        for j, vs in enumerate(fvs):
+            tmp[vs.vector_space_hash] += 1
+        playthrough_frame_aggregation.append(dict(tmp))
+    exps = []
+    def visited(vs, exps):
+        for k in exps:
+            e1 = vs.src_index == k.src_index
+            e2 = vs.src_index in k.dst_indexes
+            e3 = vs.frame_number == k.frame_number
+            e0 = (e1 or e2) and e3
+            print(f'\t{vs.src_index}, {k.src_index}, {vs.src_index}, {list(sorted(k.dst_indexes))}: ({e1} or {e2}) and {e3} = {e0}')
+            if e0:
+                return True
+        return False
+    for i, frame_vs in enumerate(env.playthrough_vector_space):
+        frame_patches = env.playthrough_patches[i]
+        frame_aggregation = playthrough_frame_aggregation[i]
+        for j, vs in enumerate(frame_vs):
+            src_patch = frame_patches[vs.src_index]
+            src_patch_ihash = patch_hash_to_int(src_patch.hsh)
+            e1 = frame_aggregation[vs.vector_space_hash] > 1
+            e2 = visited(vs, exps)
+            e3 = len(vs.dst_indexes) == 0
+            e0 = e1 or e2 or e3
+            print(f'{i}, {j}: ({e1} or {e2} or {e3} = {e0} ({"continue" if e0 else "onward!"}))')
+            if e0:
+                continue
+            exp = PatchNeighborVectorSpace(
+                frame_number=vs.frame_number,
+                src_index=vs.src_index,
+                src_hash=vs.src_hash,
+                unit_vects=vs.unit_vects,
+                mags=vs.mags,
+                dst_indexes=vs.dst_indexes,
+                dst_hashes=vs.dst_hashes,
+                vector_space_hash=vs.vector_space_hash,
+                all_neighbors=False,
+            )
+            temp = extend_vs(env, vs, None, exp, playthrough_frame_aggregation[i])
+            exps.append(temp)
+    return exps
+
+def extend_vs(env, src_vs, next_vs_list, exp, frame_aggregation, depth=0):
+    frame_number = src_vs.frame_number
+    prefix = '\t' * depth
+    def vs_list(vs):
+        temp = []
+        for index in vs.dst_indexes:
+            if frame_aggregation[env.playthrough_vector_space[frame_number][index].vector_space_hash] == 1:
+                temp.append(env.playthrough_vector_space[frame_number][index])
+        return temp
+        #return [env.playthrough_vector_space[index] for index in vs.dst_indexes if frame_aggregation[patch_hash_to_int(env.playthrough_patches[index].hsh)] == 1]
+
+    if next_vs_list is None:
+        next_vs_list = vs_list(src_vs)
+    src_index = src_vs.src_index
+    _print('\n\n\n')
+    _print(f'{prefix}depth: {depth} src_index: {src_index} next_vs_list: {next_vs_list}, exp.dst_indexes: {exp.dst_indexes}')
+
+    for next_vs in next_vs_list:
+        next_index = next_vs.src_index
+        next_patch = env.playthrough_patches[frame_number][next_index]
+        _print(f'|next_index: {next_index}')
+        if next_patch.area > 250:  # arbitrary threshold
+            _tm.cprint(f'| (!) next_patch.area > 250', 'red')
+            continue
+        for j, skip_vs_src_index in enumerate(next_vs.dst_indexes):
+            skip_patch = env.playthrough_patches[frame_number][skip_vs_src_index]
+            _print(f'||skip_index: {skip_patch.index}')
+            skip_vs = env.playthrough_vector_space[frame_number][skip_patch.index]
+            if frame_aggregation[skip_vs.vector_space_hash] == 1:
+                temp = np.where(env.playthrough_knns[frame_number][src_index] == skip_vs_src_index)
+                if skip_patch.index not in exp.dst_indexes and len(temp) == 1:
+                    knn_index = temp[0]
+                    skip_knn = env.playthrough_knns[frame_number][src_vs.src_index]
+                    exp.append(
+                        skip_patch,
+                        skip_knn.unit_vects[knn_index],
+                        skip_knn.mags[knn_index])
+                    extend_vs(env, src_vs, vs_list(skip_vs), exp, frame_aggregation, depth=depth + 1)
+                else:
+                    _tm.cprint(f'| (!) skip_patch.index not in exp.dst_indexes and len(temp) == 1', 'red')
+            else:
+                _tm.cprint(f'| (!) frame_aggregation[skip_vs.vector_space_hash] == 1', 'red')
+                _tm.cprint(f'| (!)   {frame_aggregation[skip_vs.vector_space_hash]}', 'red')
+
+    _print('\n\n\n')
+    return exp
+
+def save_data(data, name):
+    if not os.path.isdir(name):
+        os.mkdir(name)
+    for i, chunk in enumerate(chunked(data, 500)):
+        with open(f'{name}/{i}', 'wb') as fp:
+            pickle.dump(chunk, fp)
+
+def load_data(name):
+    data = []
+    for i in range(len(glob(f'{name}/*'))):
+        with open(f'{name}/{i}', 'rb') as fp:
+            data.extend(pickle.load(fp))
+    return data
+
+def load_env():
+    print('playthrough_features')
+    playthrough_features = load_data('playthrough_features')
+    print('playthrough_masks')
+    playthrough_masks = load_data('playthrough_masks')
+    print('playthrough_hashes')
+    playthrough_hashes = load_data('playthrough_hashes')
+    print('playthrough_pix_to_patch_index')
+    playthrough_pix_to_patch_index = load_data('playthrough_pix_to_patch_index')
+    print('playthrough_patches')
+    playthrough_patches = load_data('playthrough_patches')
+    print('playthrough_kdtrees')
+    playthrough_kdtrees = load_data('playthrough_kdtrees')
+    print('playthrough_neighbor_index')
+    playthrough_neighbor_index = load_data('playthrough_neighbor_index')
+    print('playthrough_vector_space')
+    playthrough_vector_space = load_data('playthrough_vector_space')
+    print('aggregated_vector_space')
+    aggregated_vector_space = {key: value for key, value in load_data('aggregated_vector_space')}
+    print('playthrough_knns')
+    playthrough_knns = load_data('playthrough_knns')
+    return Environment(
+        playthrough_features=playthrough_features,
+        playthrough_masks=playthrough_masks,
+        playthrough_hashes=playthrough_hashes,
+        playthrough_pix_to_patch_index=playthrough_pix_to_patch_index,
+        playthrough_patches=playthrough_patches,
+        playthrough_kdtrees=playthrough_kdtrees,
+        playthrough_neighbor_index=playthrough_neighbor_index,
+        playthrough_vector_space=playthrough_vector_space,
+        aggregated_vector_space=aggregated_vector_space,
+        playthrough_knns=playthrough_knns
     )
 
 def determine_bayesian_probabilities(playthrough_vector_space, aggregated_vector_space):
@@ -295,7 +420,7 @@ def partition_vectors(filtered_aggregated_vectors, filtered_playthrough_vectors,
     print(len(filtered_playthrough_vectors))
 def filter_aggregated_vectors(aggregated_vectors, mag_threshold=50):
     def filter_func(vector):
-        return aggregated_vectors[vector] > 2 and vector.are_neighbors is True and vector.mag < mag_threshold
+        return aggregated_vectors[vector] > 2 and vector.are_neighbors is True and vector.mags < mag_threshold
     return {hashable_vector(i): aggregated_vectors[i] for i in filter(filter_func, aggregated_vectors)}
 def hashable_vector(vector):
     return PatchVector(src_patch_hash=tuple(vector[0]), unit_vect=tuple(vector[1]), mag=vector[2], dst_patch_hash=tuple(vector[3]), are_neighbors=vector[4], src_index=vector.src_index, dst_index=vector.dst_index)
@@ -306,7 +431,7 @@ def filter_playthrough_vectors(aggregated_vectors, playthrough_vectors):
         for j, vector in enumerate(vectors):
             if (aggregated_vectors[hashable_vector(vector)] > 2
                     and vector.are_neighbors is True
-                    and vector.mag < 50):
+                    and vector.mags < 50):
                 filtered_vectors.append(vector)
         filtered_playthrough_vectors.append(filtered_vectors)
     return filtered_playthrough_vectors
@@ -335,9 +460,11 @@ def patch_hash_to_int(hsh):
 def vector_space_hash(src_patch_hash, dst_patch_hashes, unit_vects, mags):
     hashes_as_ints = list(map(patch_hash_to_int, dst_patch_hashes))
     hsh = (*src_patch_hash.flatten().tolist(),)
-    for i, t in enumerate(sorted(zip(unit_vects, mags, hashes_as_ints), key=lambda x: x[2])):
+    tmp = list(sorted(zip(unit_vects, mags, hashes_as_ints), key=lambda x: x[2]))
+    for i, t in enumerate(tmp):
         hsh += (*t[0], t[1], t[2])
     return hsh
+
 def aggregate_playthrough_vector_space(playthrough_vector_space):
     aggregated = defaultdict(int)
     for i, fvs in enumerate(playthrough_vector_space):
@@ -379,61 +506,54 @@ def _get_playthrough_neighbors_index(playthrough_pix_to_patch_index: np.array, n
         playthrough_neighbors.append(my_neighbors)
     return playthrough_neighbors
 def are_patches_neighbors(patch1, patch2, frame_neighbor_index):
-    return frame_neighbor_index[patch1.patch_index].get(patch2.patch_index, False)
+    return frame_neighbor_index[patch1.index].get(patch2.index, False)
 def encode_playthrough_vectors(playthrough_patches, playthrough_pix_to_patch_index, playthrough_kdtrees, playthrough_neighbor_index, mag_threshold=50):
-    #playthrough_vectors = []
     playthrough_vector_space = []
+    playthrough_knns = []
     with progressbar.ProgressBar(max_value=len(playthrough_kdtrees)) as bar:
         for i, kdtree in enumerate(playthrough_kdtrees):
             bar.update(i)
-            #frame_vectors = []
             frame_vector_space = []
+            frame_knns = []
             frame_patches = playthrough_patches[i]
             frame_neighbor_index = playthrough_neighbor_index[i]
             pix_to_patch_index = playthrough_pix_to_patch_index[i]
             for j, src_patch in enumerate(frame_patches):
-                #print(i, len(playthrough_kdtrees), j, len(frame_patches), f'{(i / len(frame_patches)) * 100}%')
                 if len(frame_patches) <= 1:
                     continue
                 patch_coords = Point(src_patch.first_x, src_patch.first_y)
-                unit_vectors, magnitudes, dst_patch_index = normalize_knn(kdtree, [patch_coords], k=len(frame_patches), distance_upper_bound=50)
-                coords = [kdtree.data[k] for k in dst_patch_index[0]]
-
+                unit_vectors, magnitudes, dst_patch_index, coords = normalize_knn(kdtree, [patch_coords], k=len(frame_patches), distance_upper_bound=50)
+                if len(dst_patch_index) == 0:
+                    frame_knns.append(Knns(dst_patch_index, magnitudes, unit_vectors))
+                    frame_vector_space.append(PatchNeighborVectorSpace(
+                        src_index=i, src_hash=src_patch[0], frame_number=i, unit_vects=unit_vectors, mags=magnitudes,
+                        dst_hashes=[], dst_indexes=[], )
+                    )
+                    frame_vector_space[-1].vector_space_hash = vector_space_hash(src_patch.hsh,
+                                                                       frame_vector_space[-1].dst_hashes,
+                                                                       frame_vector_space[-1].unit_vects,
+                                                                       frame_vector_space[-1].mags)
+                    continue
                 dst_patches = []
-                for k, coord in enumerate(coords):
-                    if magnitudes[0][k] > mag_threshold:
-                        break
-                    dst_patches.append(get_patch_from_pix_coord(int(coord[0]), int(coord[1]), frame_patches, pix_to_patch_index))
-
-                # ['src_patch_index', 'src_patch_hash', 'unit_vects', 'mags', 'dst_patch_indexes', 'dst_patch_hashes'])
+                for k, index in enumerate(dst_patch_index):
+                    if magnitudes[k] < mag_threshold:
+                        dst_patches.append(frame_patches[index])
                 vector_space = PatchNeighborVectorSpace(
-                    i, j, src_patch[0], [], [], [], []
+                    src_index=j, src_hash=src_patch[0], frame_number=i
                 )
+                frame_knns.append(Knns(dst_patch_index, magnitudes, unit_vectors))
                 for l, dst_patch in enumerate(dst_patches):
                     neighbors = are_patches_neighbors(src_patch, dst_patch, frame_neighbor_index)
-                    #frame_vectors.append(
-                    #    PatchVector(
-                    #            src_patch[0],
-                    #            unit_vectors[0][l],
-                    #            magnitudes[0][l],
-                    #            dst_patch[0],
-                    #            neighbors, j, l
-                    #    )
-                    #)
                     if neighbors is True:
-                        vector_space.unit_vects.append(unit_vectors[0][l])
-                        vector_space.mags.append(magnitudes[0][l])
+                        vector_space.unit_vects.append(unit_vectors[l])
+                        vector_space.mags.append(magnitudes[l])
                         vector_space.dst_hashes.append(dst_patch.hsh)
-                        vector_space.dst_indexes.append(dst_patch.patch_index)
+                        vector_space.dst_indexes.append(dst_patch.index)
                 vector_space.vector_space_hash = vector_space_hash(src_patch.hsh, vector_space.dst_hashes, vector_space.unit_vects, vector_space.mags)
                 frame_vector_space.append(vector_space)
-
-            #print('4b', time.time() - start_time)
-            #playthrough_vectors.append(frame_vectors)
             playthrough_vector_space.append(frame_vector_space)
-    #return playthrough_vectors, playthrough_vector_space
-    return playthrough_vector_space
-
+            playthrough_knns.append(frame_knns)
+    return playthrough_vector_space, playthrough_knns
 def get_patch_from_pix_coord(x, y, frame_patches, pix_to_patch_index):
     frame_index = pix_to_patch_index[x][y]
     return frame_patches[frame_index]
@@ -470,16 +590,19 @@ def normalize_knn(kdt, features, k=None, distance_upper_bound=None):
         dist_to_dest_patch, dest_patch_index = kdt.query(features, k=k, workers=-1)
     else:
         dist_to_dest_patch, dest_patch_index = kdt.query(features, k=k, workers=-1, distance_upper_bound=distance_upper_bound)
-    mags = dist_to_dest_patch[:, 1:]
-    all_coords = np.array([kdt.data[dest_patch_index[i]] for i in range(dest_patch_index.shape[0])])
-    src_patch_coords = all_coords[:, 0]
-    dst_patch_coords = all_coords[:, 1:]
+    length = np.count_nonzero(np.where(dest_patch_index < len(kdt.data))) + 1
+    if length <= 1:
+        return np.array([], dtype=np.float), np.array([], dtype=np.float), np.array([], dtype=np.uint), \
+               np.array([], dtype=np.uint8)
+    mags = dist_to_dest_patch[0][1:length]
+    all_coords = kdt.data[dest_patch_index[0][:length], :]
+    src_patch_coords = all_coords[0]
+    dst_patch_coords = all_coords[1:]
     for i, coord in enumerate(dst_patch_coords):
-        dst_patch_coords[i] = coord - src_patch_coords[i]
-    flat_coords = dst_patch_coords.reshape((dst_patch_coords.shape[0] * dst_patch_coords.shape[1], 2))
-    unit_vects = preprocessing.normalize(flat_coords).reshape(dst_patch_coords.shape)
-    dest_patch_index = dest_patch_index[:, 1:]
-    return unit_vects, mags, dest_patch_index
+        dst_patch_coords[i] = coord - src_patch_coords
+    unit_vects = preprocessing.normalize(dst_patch_coords).reshape(dst_patch_coords.shape)
+    dest_patch_index = dest_patch_index.flatten()[1:length]
+    return unit_vects, mags, dest_patch_index, all_coords[1:]
 def color_mask(img, mask, color=(0, 255, 0)):
     c = np.array(color, dtype=np.ubyte)
     img = img.copy()
@@ -755,13 +878,13 @@ def test_vector_space_function():
     playthrough_kdtrees = populate_kdtrees(playthrough_patches)
     playthrough_neighbor_index = get_playthrough_neighbors_index(playthrough_pix_to_patch_index, ntype)
     #playthrough_vectors,
-    playthrough_vector_space = encode_playthrough_vectors(
+    playthrough_vector_space, _ = encode_playthrough_vectors(
         playthrough_patches,
         playthrough_pix_to_patch_index,
         playthrough_kdtrees,
         playthrough_neighbor_index,
         mag_threshold=mag_threshold)
-    reference_playthrough_vector_space_dst_indexes = [
+    expected_playthrough_vector_space_dst_indexes = [
         [1, 2, 3, 4, 9, 13, 20],
         [0, 2, 8],
         [0, 1, 3, 4, 5, 6, 7, 8],
@@ -792,13 +915,154 @@ def test_vector_space_function():
         [18, 19],
         [18, 26]
     ]
-    assert(reference_playthrough_vector_space_dst_indexes == [list(sorted(i.dst_indexes)) for i in playthrough_vector_space[0]])
+    actual_playthrough_vector_space_dst_indexes = [list(sorted(i.dst_indexes)) for i in playthrough_vector_space[0]]
+    assert(expected_playthrough_vector_space_dst_indexes == actual_playthrough_vector_space_dst_indexes)
     temp = {
         playthrough_vector_space[0][0].vector_space_hash: True
     }
     aggregated_vector_space = aggregate_playthrough_vector_space(playthrough_vector_space)
 
-if __name__ == '__main__':
-    test_new_hashing_function()
-    test_vector_space_function()
-    algo_v1()
+def test_aggregation():
+    ntype = False
+    mario_on_small_canvas = get_env(None, None, ntype=ntype, parrallel=False, img_path='sprites/sprites/SuperMarioBros-Nes/3.png')
+    expected_playthrough_vector_space_dst_indexes = [
+        [1, 2, 3, 4, 9, 13, 20],
+        [0, 2, 8],
+        [0, 1, 3, 4, 5, 6, 7, 8],
+        [0, 2, 4, 10],
+        [0, 2, 3, 5, 9, 11, 13, 14, 15, 16, 17],
+        [2, 4, 6],
+        [2, 5, 7, 8, 11],
+        [2, 6, 8],
+        [1, 2, 6, 7, 12],
+        [0, 4, 10],
+        [3, 9],
+        [4, 6, 12],
+        [8, 11, 17, 18, 19],
+        [0, 4, 14, 18, 20, 21],
+        [4, 13, 15],
+        [4, 14, 16, 18],
+        [4, 15, 17],
+        [4, 12, 16, 18],
+        [12, 13, 15, 17, 19, 21, 22, 23, 26, 27, 28],
+        [12, 18, 27],
+        [0, 13, 21, 24, 25],
+        [13, 18, 20, 26],
+        [18],
+        [18],
+        [20, 26],
+        [20, 26],
+        [18, 21, 24, 25, 28],
+        [18, 19],
+        [18, 26]
+    ]
+    actual_playthrough_vector_space_dst_indexes = [list(sorted(i.dst_indexes)) for i in mario_on_small_canvas.playthrough_vector_space[0]]
+    assert(expected_playthrough_vector_space_dst_indexes == actual_playthrough_vector_space_dst_indexes)
+    assert(len(mario_on_small_canvas.playthrough_vector_space[0]) == 29)
+    mosc_exps = run_playtime_tests(mario_on_small_canvas, {
+        'exps_len': 1,
+        'dst_indexes': [list(range(29))],
+    })
+
+    mario_on_large_canvas = get_env(None, None, ntype=ntype, parrallel=False, img_path='/home/mcsmash/dev/deep_thought/data_tools/preprocessing/detect-sprites/sprites/sprites/SuperMarioBros-Nes/tests/mario-on-a-large-canvas.png')
+    assert(len(mario_on_large_canvas.playthrough_vector_space[0]) == 25)
+    expected_playthrough_vector_space_dst_indexes = [
+        [],                                     # 0
+        [2, 8],                                 # 1
+        [1, 3, 4, 5, 6, 7, 8],                  # 2
+        [2, 4, 10],                             # 3
+        [2, 3, 5, 9, 11, 12, 13, 14, 15, 16],   # 4
+        [2, 4, 6],                              # 5
+        [2, 5, 7, 8, 11],                       # 6
+        [2, 6, 8],                              # 7
+        [1, 2, 6, 7],                           # 8
+        [4, 10],                                # 9
+        [3, 9],                                 # 10
+        [4, 6],                                 # 11
+        [4, 13, 17, 19, 20],                    # 12
+        [4, 12, 14],                            # 13
+        [4, 13, 15, 17],                        # 14
+        [4, 14, 16],                            # 15
+        [4, 15, 17],                            # 16
+        [12, 14, 16, 18, 20, 21, 22, 24],       # 17
+        [17],                                   # 18
+        [12, 20, 23],                           # 19
+        [12, 17, 19, 24],                       # 20
+        [17],                                   # 21
+        [17],                                   # 22
+        [19, 24],                               # 23
+        [17, 20, 23],                           # 24
+    ]
+    actual_playthrough_vector_space_dst_indexes = [list(sorted(i.dst_indexes)) for i in mario_on_large_canvas.playthrough_vector_space[0]]
+    assert(expected_playthrough_vector_space_dst_indexes == actual_playthrough_vector_space_dst_indexes)
+    molc_exps = run_playtime_tests(mario_on_large_canvas, {
+        'exps_len': 1,
+        'dst_indexes': [list(range(1, 25))],
+    })
+    mario_and_goomba = get_env(None, None, ntype=ntype, parrallel=False, img_path='/home/mcsmash/dev/deep_thought/data_tools/preprocessing/detect-sprites/sprites/sprites/SuperMarioBros-Nes/tests/mario-and-a-goomba-far-apart.png')
+    assert(len(mario_and_goomba.playthrough_vector_space[0]) == 35)
+    expected_playthrough_vector_space_dst_indexes = [
+        [],                                     # 0
+        [2, 8],                                 # 1
+        [1, 3, 4, 5, 6, 7, 8],                  # 2
+        [2, 4, 10],                             # 3
+        [2, 3, 5, 9, 11, 12, 13, 14, 15, 16],   # 4
+        [2, 4, 6],                              # 5
+        [2, 5, 7, 8, 11],                       # 6
+        [2, 6, 8],                              # 7
+        [1, 2, 6, 7],                           # 8
+        [4, 10],                                # 9
+        [3, 9],                                 # 10
+        [4, 6],                                 # 11
+        [4, 13, 17, 19, 20],                    # 12
+        [4, 12, 14],                            # 13
+        [4, 13, 15, 17],                        # 14
+        [4, 14, 16],                            # 15
+        [4, 15, 17],                            # 16
+        [12, 14, 16, 18, 20, 21, 22, 24],       # 17
+        [17],                                   # 18
+        [12, 20, 23],                           # 19
+        [12, 17, 19, 24],                       # 20
+        [17],                                   # 21
+        [17],                                   # 22
+        [19, 24],                               # 23
+        [17, 20, 23],                           # 24
+        [27, 28, 30],                           # 25
+        [27, 28, 29, 30, 31, 32],               # 26
+        [25, 26, 29],                           # 27
+        [25, 26, 31],                           # 28
+        [26, 27, 30],                           # 29
+        [25, 26, 29, 31],                       # 30
+        [26, 28, 30],                           # 31
+        [26, 33, 34],                           # 32
+        [32],                                   # 33
+        [32],                                   # 34
+    ]
+    actual_playthrough_vector_space_dst_indexes = [list(sorted(i.dst_indexes)) for i in mario_and_goomba.playthrough_vector_space[0]]
+    for i, j in enumerate(zip(actual_playthrough_vector_space_dst_indexes, expected_playthrough_vector_space_dst_indexes)):
+        _print(i)
+        color = 'red' if j[0] != j[1] else 'green'
+        _tm.cprint(j[0], color)
+        _tm.cprint(j[1], color)
+        _print('\n')
+
+    assert(expected_playthrough_vector_space_dst_indexes == actual_playthrough_vector_space_dst_indexes)
+    mandg = run_playtime_tests(mario_and_goomba, {
+        'exps_len': 2,
+        'dst_indexes': [list(range(1, 25)), list(range(25, 35))],
+    })
+    pass
+
+def run_playtime_tests(env, expected):
+    exps = playtime(env)
+    try:
+        assert len(exps) == expected['exps_len'], f'exps_len test failed.\n\ractual: {len(exps)}\n\texpected: {expected["exps_len"]}'
+    except AssertionError as e:
+        for i, exp in enumerate(exps):
+            print(i, list(sorted(exp.dst_indexes)))
+        raise e
+    for i, expected_dst in enumerate(expected['dst_indexes']):
+        assert len(exps[i].dst_indexes) == len(expected_dst), f'dst_indexes_len[{i}] test failed.\n\ractual: {len(exps[i].dst_indexes)}\n\texpected: {len(expected_dst)}'
+        assert list(sorted(exps[i].dst_indexes)) == list(sorted(expected_dst)), f'dst_indexes_len[{i}] test failed.\n\ractual: {list(sorted(exps[i].dst_indexes))}\n\texpected: {list(sorted(expected_dst))}'
+
+    return exps

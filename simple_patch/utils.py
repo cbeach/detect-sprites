@@ -52,9 +52,9 @@ def proc_cache(step_number, db):
 def ser(pt, img_count, ntype, start=0):
     patches = []
     masks = []
+    p_func = partial(quick_parse, ntype=ntype, shrink_mask=True, run_assertions=False)
     for i, img in enumerate(pt[start:start+img_count]):
-        print(i)
-        p, m = quick_parse(img, False)
+        p, m = p_func(img)
         patches.append(p)
         masks.append(m)
     return patches, masks
