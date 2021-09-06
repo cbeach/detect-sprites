@@ -27,7 +27,7 @@ _print = print; print = lineno_print; cprint = lineno_cprint; pprint = lineno_pp
 db = TinyDB(os.path.join(DATA_DIR, 'data_store/incremental_data.db'))
 
 
-def parse_and_hash_playthrough(game, playthrough_number, ntype, img_count=None, img_number=None, img_path=None, random_image=False, start_index=None, parrallel=True):
+def parse_and_hash_playthrough(game, playthrough_number, ntype, img_count=None, img_number=None, img_path=None, random_image=False, start_index=None, parrallel=True, playthrough_path=None):
     if parrallel is True:
         from .utils import par as func
         pool = mp.Pool(8)
@@ -47,6 +47,9 @@ def parse_and_hash_playthrough(game, playthrough_number, ntype, img_count=None, 
             parsed_frames_masks_and_hashes = [f for f in func(pt[start_index:img_count], img_count=img_count, ntype=ntype, pool=pool)]
         else:
             parsed_frames_masks_and_hashes = [f for f in func(pt, img_count=img_count, ntype=ntype, pool=pool)]
+    elif playthrough_path is not None:
+        pt = get_playthrough(None, playthrough_path=playthrough_path)['raw']
+        parsed_frames_masks_and_hashes = [f for f in func(pt, img_count=img_count, ntype=ntype, pool=pool)]
     else:
         if img_path is not None:
             img = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)[:, :, :-1]

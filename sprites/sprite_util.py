@@ -77,8 +77,10 @@ def get_image_list(game='SuperMarioBros-Nes', play_number=None):
 
 def get_frame(game, play_number, frame_number):
     return cv2.imread(PNG_TMPL.format(DATA_DIR=DATA_DIR, game=game, play_number=play_number, frame_number=frame_number), cv2.IMREAD_UNCHANGED)
-def get_playthrough(play_number, game='SuperMarioBros-Nes'):
-    if play_number is not None:
+def get_playthrough(play_number, game='SuperMarioBros-Nes', playthrough_path=None):
+    if playthrough_path is not None:
+        return dict(np.load(f'{playthrough_path}/frames.npz'))
+    elif play_number is not None:
         return dict(np.load(f'{PLAY_DIR}/{game}/{play_number}/frames.npz'))
     else:
         raise TypeError

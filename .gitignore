@@ -169,6 +169,4 @@ little_mario_run-3.png
 possible/
 *.pickle
 kdtree
-playthough_*
-aggregated_vector_space
-playthrough_*
+cache/
