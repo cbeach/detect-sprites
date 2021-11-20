@@ -66,12 +66,7 @@ def par(pt, img_count, ntype, start=0, pool=None):
         pool = mp.Pool(8)
     return pool.map(p_func, pt[start:start+img_count])
 
-def vectorspace_to_patch_list(frame_patches, vs):
-    return [frame_patches[i] for i in [vs.src_index] + vs.dst_indexes]
 
-def vectorspace_to_image(frame_patches, vs):
-    patches = vectorspace_to_patch_list(frame_patches, vs)
-    #bounding_box
 
 def patch_hash_to_int(hsh):
     b = hsh.tobytes()

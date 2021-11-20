@@ -63,7 +63,7 @@ db = TinyDB(os.path.join(DATA_DIR, 'data_store/incremental_data.db'))
 def get_env(*args, **kwargs):
     ntype = False
     mag_threshold = 50
-    playthrough_features, playthrough_masks, playthrough_hashes, playthrough_pix_to_patch_index \
+    playthrough_features, playthrough_masks, playthrough_hashes, playthrough_pix_to_patch_index, playthrough \
         = parse_and_hash_playthrough(*args, **kwargs)
     playthrough_patches = encode_playthrough_patches(playthrough_features, playthrough_masks, playthrough_hashes)
     playthrough_kdtrees = populate_kdtrees(playthrough_patches)
@@ -77,6 +77,7 @@ def get_env(*args, **kwargs):
     aggregated_vector_space = aggregate_playthrough_vector_space(playthrough_vector_space)
     vector_space_expansions = playtime(playthrough_knns, playthrough_patches, playthrough_vector_space)
     return Environment(
+        playthrough=playthrough,
         playthrough_features=playthrough_features,
         playthrough_masks=playthrough_masks,
         playthrough_hashes=playthrough_hashes,
@@ -98,12 +99,13 @@ def algo_v1(pickle_me=True):
     if pickle_me is True:
         print('recalculating...')
 
-        playthrough_features, playthrough_masks, playthrough_hashes, playthrough_pix_to_patch_index \
-            = parse_and_hash_playthrough(game, play_number, ntype)  #, img_count=10)
+        playthrough_features, playthrough_masks, playthrough_hashes, playthrough_pix_to_patch_index, playthrough \
+            = parse_and_hash_playthrough(game, play_number, ntype, img_count=10)
         save_data(playthrough_features, 'playthrough_features')
         save_data(playthrough_masks, 'playthrough_masks')
         save_data(playthrough_hashes, 'playthrough_hashes')
         save_data(playthrough_pix_to_patch_index, 'playthrough_pix_to_patch_index')
+        save_data(playthrough, 'playthrough')
         playthrough_patches = encode_playthrough_patches(playthrough_features, playthrough_masks, playthrough_hashes)
         save_data(playthrough_patches, 'playthrough_patches')
         playthrough_kdtrees = populate_kdtrees(playthrough_patches)
@@ -133,13 +135,15 @@ def playtime(playthrough_knns, playthrough_patches, playthrough_vector_space):
         for j, vs in enumerate(fvs):
             tmp[vs.vector_space_hash] += 1
         playthrough_frame_aggregation.append(dict(tmp))
-    exps = []
+
+    frame_exps = []
     def visited(vs, exps):
         for k in exps:
             if (vs.src_index == k.src_index or vs.src_index in k.dst_indexes) and vs.frame_number == k.frame_number:
                 return True
         return False
     for i, frame_vs in enumerate(playthrough_vector_space):
+        exps = []
         frame_aggregation = playthrough_frame_aggregation[i]
         for j, vs in enumerate(frame_vs):
             if frame_aggregation[vs.vector_space_hash] > 1 or visited(vs, exps) or len(vs.dst_indexes) == 0:
@@ -157,7 +161,8 @@ def playtime(playthrough_knns, playthrough_patches, playthrough_vector_space):
             )
             temp = extend_vs(playthrough_knns, playthrough_patches, playthrough_vector_space, vs, None, exp, playthrough_frame_aggregation[i])
             exps.append(temp)
-    return exps
+        frame_exps.append(exps)
+    return frame_exps
 
 
 def extend_vs(playthrough_knns, playthrough_patches, playthrough_vector_space, src_vs, next_vs_list, exp, frame_aggregation, depth=0):
@@ -198,7 +203,6 @@ def save_data(data, name, base_path='./cache'):
     mypath = f'{base_path}/{name}'
     if not os.path.isdir(mypath):
         os.makedirs(mypath)
-
     for i, chunk in enumerate(chunked(data, 500)):
         save_path = f'{mypath}/{i}'
         print(f'saving {name} at {save_path}')
@@ -709,7 +713,7 @@ def test_vector_space_function():
     ntype = False
     mag_threshold = 50
 
-    playthrough_features, playthrough_masks, playthrough_hashes, playthrough_pix_to_patch_index \
+    playthrough_features, playthrough_masks, playthrough_hashes, playthrough_pix_to_patch_index, playthrough \
             = parse_and_hash_playthrough(None, None, ntype=ntype, img_path='sprites/sprites/SuperMarioBros-Nes/3.png')
     reference_pix_to_patch_index = np.array([
         [ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1],
@@ -817,8 +821,8 @@ def test_aggregation():
     assert(expected_playthrough_vector_space_dst_indexes == actual_playthrough_vector_space_dst_indexes)
     assert(len(mario_on_small_canvas.playthrough_vector_space[0]) == 29)
     mosc_exps = run_playtime_tests(mario_on_small_canvas, {
-        'exps_len': 1,
-        'dst_indexes': [list(range(29))],
+        'exps_len': [1],
+        'dst_indexes': [[list(range(29))]],
     })
 
     mario_on_large_canvas = get_env(None, None, ntype=ntype, parrallel=False, img_path='/home/mcsmash/dev/deep_thought/data_tools/preprocessing/detect-sprites/sprites/sprites/SuperMarioBros-Nes/tests/mario-on-a-large-canvas.png')
@@ -853,8 +857,8 @@ def test_aggregation():
     actual_playthrough_vector_space_dst_indexes = [list(sorted(i.dst_indexes)) for i in mario_on_large_canvas.playthrough_vector_space[0]]
     assert(expected_playthrough_vector_space_dst_indexes == actual_playthrough_vector_space_dst_indexes)
     molc_exps = run_playtime_tests(mario_on_large_canvas, {
-        'exps_len': 1,
-        'dst_indexes': [list(range(1, 25))],
+        'exps_len': [1],
+        'dst_indexes': [[list(range(1, 25))]],
     })
     mario_and_goomba = get_env(None, None, ntype=ntype, parrallel=False, img_path='/home/mcsmash/dev/deep_thought/data_tools/preprocessing/detect-sprites/sprites/sprites/SuperMarioBros-Nes/tests/mario-and-a-goomba-far-apart.png')
     assert(len(mario_and_goomba.playthrough_vector_space[0]) == 35)
@@ -899,27 +903,31 @@ def test_aggregation():
 
     assert(expected_playthrough_vector_space_dst_indexes == actual_playthrough_vector_space_dst_indexes)
     mandg = run_playtime_tests(mario_and_goomba, {
-        'exps_len': 2,
-        'dst_indexes': [list(range(1, 25)), list(range(25, 35))],
+        'exps_len': [2],
+        'dst_indexes': [[list(range(1, 25)), list(range(25, 35))]],
     })
     
 def test_extension():
     sequence_path = './test/pngs/sequences/running/'
     ntype = False
     env = get_env(None, None, ntype, playthrough_path=sequence_path)
-    pass
+    #show_image(env.playthrough[0])
+    return
+    for i, exps in enumerate(env.vector_space_expansions):
+        show_images([j.to_image(env.playthrough_patches[i], env.playthrough[i]) for j in exps])
 
 
 def run_playtime_tests(env, expected):
     exps = playtime(env.playthrough_knns, env.playthrough_patches, env.playthrough_vector_space)
-    try:
-        assert len(exps) == expected['exps_len'], f'exps_len test failed.\n\ractual: {len(exps)}\n\texpected: {expected["exps_len"]}'
-    except AssertionError as e:
-        for i, exp in enumerate(exps):
-            print(i, list(sorted(exp.dst_indexes)))
-        raise e
-    for i, expected_dst in enumerate(expected['dst_indexes']):
-        assert len(exps[i].dst_indexes) == len(expected_dst), f'dst_indexes_len[{i}] test failed.\n\ractual: {len(exps[i].dst_indexes)}\n\texpected: {len(expected_dst)}'
-        assert list(sorted(exps[i].dst_indexes)) == list(sorted(expected_dst)), f'dst_indexes_len[{i}] test failed.\n\ractual: {list(sorted(exps[i].dst_indexes))}\n\texpected: {list(sorted(expected_dst))}'
+    for i, frame_exp in enumerate(exps):
+        try:
+            assert len(frame_exp) == expected['exps_len'][i], f'exps_len test failed.\n\ractual: {len(frame_exp)}\n\texpected: {expected["exps_len"][i]}'
+        except AssertionError as e:
+            for j, exp in enumerate(frame_exp):
+                print(j, list(sorted(exp.dst_indexes)))
+                raise e
+        for j, expected_dst in enumerate(expected['dst_indexes']):
+            assert len(frame_exp[j].dst_indexes) == len(expected_dst[i]), f'dst_indexes_len[{j}] test failed.\n\ractual: {len(frame_exp[j].dst_indexes)}\n\texpected: {len(expected_dst[i])}'
+            assert list(sorted(frame_exp[j].dst_indexes)) == list(sorted(expected_dst[i])), f'dst_indexes_len[{j}] test failed.\n\ractual: {list(sorted(frame_exp[j].dst_indexes))}\n\texpected: {list(sorted(expected_dst[i]))}'
 
     return exps

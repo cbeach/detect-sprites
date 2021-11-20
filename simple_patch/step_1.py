@@ -54,9 +54,10 @@ def parse_and_hash_playthrough(game, playthrough_number, ntype, img_count=None, 
         if img_path is not None:
             img = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)[:, :, :-1]
             parsed_frames_masks_and_hashes = [[f for f in quick_parse(img, ntype=ntype)]]
+            pt = np.array([img], dtype=img.dtype)
 
     frame_features = [i[0] for i in parsed_frames_masks_and_hashes]
     masks = [i[1] for i in parsed_frames_masks_and_hashes]
     hashes = [i[2] for i in parsed_frames_masks_and_hashes]
     pix_to_patch_index = [i[3] for i in parsed_frames_masks_and_hashes]
-    return frame_features, masks, hashes, pix_to_patch_index
+    return frame_features, masks, hashes, pix_to_patch_index, pt
