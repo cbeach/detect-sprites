@@ -54,7 +54,7 @@ gym==0.10.5
 -e git+git@github.com:cbeach/retro.git@a4efe88462be9ef403b2d1b4b21ca978782e1c3e#egg=gym_retro
 h11==0.9.0
 h5py==2.8.0
-html5lib==0.9999999
+html5lib==0.99999999
 httptools==0.0.13
 idna==2.6
 imageio==2.2.0
