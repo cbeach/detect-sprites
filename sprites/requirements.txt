@@ -93,7 +93,7 @@ nbformat==4.4.0
 networkx==2.2
 notebook==5.7.4
 numba==0.48.0
-numpy==1.15.4
+numpy==1.22.0
 opencv-contrib-python==3.4.2.17
 opencv-python==3.4.0.12
 packaging==20.0
